@@ -1,30 +1,67 @@
+// app/auth.tsx
 import { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Phone, Lock, User, Mail, ArrowRight } from 'lucide-react-native';
+import { useAuth } from './contexts/AuthContext';
 
 export default function AuthScreen() {
   const router = useRouter();
+  const { signIn, signUp, loading } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [formData, setFormData] = useState({
+    phone: '',
+    password: '',
+    name: '',
+    email: '',
+  });
 
-  const handleAuth = () => {
-    if (!phone || !password) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+  const handleAuth = async () => {
+    if (!formData.email || !formData.password) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
       return;
     }
 
-    if (!isLogin && (!name || !email)) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+    if (!isLogin && !formData.name) {
+      Alert.alert('Erreur', 'Veuillez entrer votre nom complet');
       return;
     }
 
-    // For demo purposes, navigate to onboarding
-    router.push('/onboarding');
+    try {
+      let result;
+
+      if (isLogin) {
+        result = await signIn(formData.email, formData.password);
+      } else {
+        result = await signUp(formData.email, formData.password, {
+          full_name: formData.name,
+          phone: formData.phone || null,
+          role: 'client', // Default role, will be changed in onboarding
+        });
+      }
+
+      if (result.error) {
+        Alert.alert('Erreur', result.error);
+      } else {
+        if (isLogin) {
+          // Navigation will be handled by the auth state change
+        } else {
+          Alert.alert(
+            'Compte créé',
+            'Vérifiez votre email pour confirmer votre compte',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.push('/onboarding'),
+              },
+            ]
+          );
+        }
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur inattendue s\'est produite');
+    }
   };
 
   return (
@@ -38,8 +75,8 @@ export default function AuthScreen() {
             {isLogin ? 'Connexion' : 'Créer un compte'}
           </Text>
           <Text style={styles.subtitle}>
-            {isLogin 
-              ? 'Connectez-vous à votre compte TâcheSûre' 
+            {isLogin
+              ? 'Connectez-vous à votre compte TâcheSûre'
               : 'Rejoignez la communauté TâcheSûre'
             }
           </Text>
@@ -52,56 +89,61 @@ export default function AuthScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Nom complet"
-                value={name}
-                onChangeText={setName}
-                placeholderTextColor="#666"
-              />
-            </View>
-          )}
-
-          {!isLogin && (
-            <View style={styles.inputContainer}>
-              <Mail size={20} color="#666" />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
+                value={formData.name}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, name: text }))}
                 placeholderTextColor="#666"
               />
             </View>
           )}
 
           <View style={styles.inputContainer}>
-            <Phone size={20} color="#666" />
+            <Mail size={20} color="#666" />
             <TextInput
               style={styles.input}
-              placeholder="Numéro de téléphone"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
+              placeholder="Email"
+              value={formData.email}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
+              keyboardType="email-address"
+              autoCapitalize="none"
               placeholderTextColor="#666"
             />
           </View>
+
+          {!isLogin && (
+            <View style={styles.inputContainer}>
+              <Phone size={20} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Numéro de téléphone (optionnel)"
+                value={formData.phone}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
+                keyboardType="phone-pad"
+                placeholderTextColor="#666"
+              />
+            </View>
+          )}
 
           <View style={styles.inputContainer}>
             <Lock size={20} color="#666" />
             <TextInput
               style={styles.input}
               placeholder="Mot de passe"
-              value={password}
-              onChangeText={setPassword}
+              value={formData.password}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, password: text }))}
               secureTextEntry
               placeholderTextColor="#666"
             />
           </View>
 
-          <TouchableOpacity style={styles.authButton} onPress={handleAuth}>
+          <TouchableOpacity
+            style={[styles.authButton, loading && styles.disabledButton]}
+            onPress={handleAuth}
+            disabled={loading}
+          >
             <Text style={styles.authButtonText}>
-              {isLogin ? 'Se connecter' : 'Créer le compte'}
+              {loading ? 'Chargement...' : isLogin ? 'Se connecter' : 'Créer le compte'}
             </Text>
-            <ArrowRight size={20} color="#FFFFFF" />
+            {!loading && <ArrowRight size={20} color="#FFFFFF" />}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -109,8 +151,8 @@ export default function AuthScreen() {
             onPress={() => setIsLogin(!isLogin)}
           >
             <Text style={styles.switchText}>
-              {isLogin 
-                ? "Pas de compte? Créer un compte" 
+              {isLogin
+                ? "Pas de compte? Créer un compte"
                 : "Déjà un compte? Se connecter"
               }
             </Text>
@@ -183,6 +225,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 12,
     marginTop: 8,
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   authButtonText: {
     fontSize: 16,

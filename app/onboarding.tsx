@@ -1,11 +1,14 @@
+// app/onboarding.tsx
 import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { User, Wrench, Building, ArrowRight } from 'lucide-react-native';
+import { useAuth } from './contexts/AuthContext';
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { updateProfile, profile, loading } = useAuth();
   const [selectedRole, setSelectedRole] = useState<string>('');
 
   const roles = [
@@ -32,13 +35,31 @@ export default function OnboardingScreen() {
     },
   ];
 
-  const handleContinue = () => {
-    if (!selectedRole) return;
-    
-    if (selectedRole === 'provider') {
-      router.push('/verification');
-    } else {
-      router.push('/(tabs)');
+  const handleContinue = async () => {
+    if (!selectedRole) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un rôle');
+      return;
+    }
+
+    try {
+      // Update user profile with selected role
+      const result = await updateProfile({
+        role: selectedRole as 'client' | 'provider' | 'admin' | 'moderator' | 'verifier',
+      });
+
+      if (result.error) {
+        Alert.alert('Erreur', result.error);
+        return;
+      }
+
+      // Navigate based on role
+      if (selectedRole === 'provider') {
+        router.push('/verification');
+      } else {
+        router.push('/(tabs)');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Une erreur s\'est produite lors de la mise à jour');
     }
   };
 
@@ -53,6 +74,11 @@ export default function OnboardingScreen() {
           <Text style={styles.subtitle}>
             Comment souhaitez-vous utiliser TâcheSûre?
           </Text>
+          {profile && (
+            <Text style={styles.welcomeText}>
+              Bienvenue {profile.full_name}!
+            </Text>
+          )}
         </View>
 
         <View style={styles.rolesContainer}>
@@ -87,13 +113,15 @@ export default function OnboardingScreen() {
         <TouchableOpacity
           style={[
             styles.continueButton,
-            !selectedRole && styles.disabledButton,
+            (!selectedRole || loading) && styles.disabledButton,
           ]}
           onPress={handleContinue}
-          disabled={!selectedRole}
+          disabled={!selectedRole || loading}
         >
-          <Text style={styles.continueButtonText}>Continuer</Text>
-          <ArrowRight size={20} color="#FFFFFF" />
+          <Text style={styles.continueButtonText}>
+            {loading ? 'Chargement...' : 'Continuer'}
+          </Text>
+          {!loading && <ArrowRight size={20} color="#FFFFFF" />}
         </TouchableOpacity>
       </ScrollView>
     </LinearGradient>
@@ -124,6 +152,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     color: '#FFFFFF',
     opacity: 0.9,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  welcomeText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    opacity: 0.8,
     textAlign: 'center',
     marginTop: 8,
   },

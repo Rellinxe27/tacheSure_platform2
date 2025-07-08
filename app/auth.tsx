@@ -1,14 +1,16 @@
 // app/auth.tsx
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Phone, Lock, User, Mail, ArrowRight } from 'lucide-react-native';
 import { useAuth } from './contexts/AuthContext';
+import { useWhatsAppBottomNotification } from '@/components/SnackBar';
 
 export default function AuthScreen() {
   const router = useRouter();
   const { signIn, signUp, loading } = useAuth();
+  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     phone: '',
@@ -19,12 +21,12 @@ export default function AuthScreen() {
 
   const handleAuth = async () => {
     if (!formData.email || !formData.password) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
+      showNotification('Champs obligatoires manquants', 'error');
       return;
     }
 
     if (!isLogin && !formData.name) {
-      Alert.alert('Erreur', 'Veuillez entrer votre nom complet');
+      showNotification('Veuillez entrer votre nom', 'error');
       return;
     }
 
@@ -37,129 +39,127 @@ export default function AuthScreen() {
         result = await signUp(formData.email, formData.password, {
           full_name: formData.name,
           phone: formData.phone || null,
-          role: 'client', // Default role, will be changed in onboarding
+          role: 'client',
         });
       }
 
       if (result.error) {
-        Alert.alert('Erreur', result.error);
+        showNotification(result.error, 'error');
       } else {
         if (isLogin) {
-          // Navigation will be handled by the auth state change
+          showNotification('Connexion réussie', 'success');
         } else {
-          Alert.alert(
-            'Compte créé',
-            'Vérifiez votre email pour confirmer votre compte',
-            [
-              {
-                text: 'OK',
-                onPress: () => router.push('/onboarding'),
-              },
-            ]
-          );
+          showNotification('Compte créé avec succès', 'success');
+          setTimeout(() => {
+            router.push('/onboarding');
+          }, 1500);
         }
       }
     } catch (error) {
-      Alert.alert('Erreur', 'Une erreur inattendue s\'est produite');
+      showNotification('Erreur inattendue', 'error');
     }
   };
 
   return (
-    <LinearGradient
-      colors={['#FF7A00', '#FF9500']}
-      style={styles.container}
-    >
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {isLogin ? 'Connexion' : 'Créer un compte'}
-          </Text>
-          <Text style={styles.subtitle}>
-            {isLogin
-              ? 'Connectez-vous à votre compte TâcheSûre'
-              : 'Rejoignez la communauté TâcheSûre'
-            }
-          </Text>
-        </View>
-
-        <View style={styles.form}>
-          {!isLogin && (
-            <View style={styles.inputContainer}>
-              <User size={20} color="#666" />
-              <TextInput
-                style={styles.input}
-                placeholder="Nom complet"
-                value={formData.name}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, name: text }))}
-                placeholderTextColor="#666"
-              />
-            </View>
-          )}
-
-          <View style={styles.inputContainer}>
-            <Mail size={20} color="#666" />
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              value={formData.email}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              placeholderTextColor="#666"
-            />
-          </View>
-
-          {!isLogin && (
-            <View style={styles.inputContainer}>
-              <Phone size={20} color="#666" />
-              <TextInput
-                style={styles.input}
-                placeholder="Numéro de téléphone (optionnel)"
-                value={formData.phone}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
-                keyboardType="phone-pad"
-                placeholderTextColor="#666"
-              />
-            </View>
-          )}
-
-          <View style={styles.inputContainer}>
-            <Lock size={20} color="#666" />
-            <TextInput
-              style={styles.input}
-              placeholder="Mot de passe"
-              value={formData.password}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, password: text }))}
-              secureTextEntry
-              placeholderTextColor="#666"
-            />
-          </View>
-
-          <TouchableOpacity
-            style={[styles.authButton, loading && styles.disabledButton]}
-            onPress={handleAuth}
-            disabled={loading}
-          >
-            <Text style={styles.authButtonText}>
-              {loading ? 'Chargement...' : isLogin ? 'Se connecter' : 'Créer le compte'}
+    <>
+      <LinearGradient
+        colors={['#FF7A00', '#FF9500']}
+        style={styles.container}
+      >
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.title}>
+              {isLogin ? 'Connexion' : 'Créer un compte'}
             </Text>
-            {!loading && <ArrowRight size={20} color="#FFFFFF" />}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.switchButton}
-            onPress={() => setIsLogin(!isLogin)}
-          >
-            <Text style={styles.switchText}>
+            <Text style={styles.subtitle}>
               {isLogin
-                ? "Pas de compte? Créer un compte"
-                : "Déjà un compte? Se connecter"
+                ? 'Connectez-vous à votre compte TâcheSûre'
+                : 'Rejoignez la communauté TâcheSûre'
               }
             </Text>
-          </TouchableOpacity>
+          </View>
+
+          <View style={styles.form}>
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <User size={20} color="#666" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nom complet"
+                  value={formData.name}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, name: text }))}
+                  placeholderTextColor="#666"
+                />
+              </View>
+            )}
+
+            <View style={styles.inputContainer}>
+              <Mail size={20} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                value={formData.email}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, email: text }))}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                placeholderTextColor="#666"
+              />
+            </View>
+
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <Phone size={20} color="#666" />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Numéro de téléphone (optionnel)"
+                  value={formData.phone}
+                  onChangeText={(text) => setFormData(prev => ({ ...prev, phone: text }))}
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#666"
+                />
+              </View>
+            )}
+
+            <View style={styles.inputContainer}>
+              <Lock size={20} color="#666" />
+              <TextInput
+                style={styles.input}
+                placeholder="Mot de passe"
+                value={formData.password}
+                onChangeText={(text) => setFormData(prev => ({ ...prev, password: text }))}
+                secureTextEntry
+                placeholderTextColor="#666"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.authButton, loading && styles.disabledButton]}
+              onPress={handleAuth}
+              disabled={loading}
+            >
+              <Text style={styles.authButtonText}>
+                {loading ? 'Chargement...' : isLogin ? 'Se connecter' : 'Créer le compte'}
+              </Text>
+              {!loading && <ArrowRight size={20} color="#FFFFFF" />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.switchButton}
+              onPress={() => setIsLogin(!isLogin)}
+            >
+              <Text style={styles.switchText}>
+                {isLogin
+                  ? "Pas de compte? Créer un compte"
+                  : "Déjà un compte? Se connecter"
+                }
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </LinearGradient>
+      </LinearGradient>
+
+      <NotificationComponent />
+    </>
   );
 }
 

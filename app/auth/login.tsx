@@ -15,10 +15,13 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { validateEmail } from '@/utils/validation';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { signIn, loading } = useAuth();
+  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification()
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -26,17 +29,25 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      showNotification('Veuillez remplir tous les champs', 'error');
       return;
     }
 
+    if (!validateEmail(email)) {
+      showNotification('Adresse email invalide', 'error');
+      return;
+    }
+
+
+
     setIsLoading(true);
-    const { error } = await signIn(email, password);
+    const result = await signIn(email, password);
     setIsLoading(false);
 
-    if (error) {
-      Alert.alert('Erreur de connexion', error);
+    if (result.error) {
+      showNotification(result.error, 'error');
     } else {
+      showNotification('Connexion réussie!', 'success');
       router.replace('/(tabs)');
     }
   };
@@ -50,7 +61,7 @@ export default function LoginScreen() {
         <View style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.title}>TâcheSûre</Text>
-            <Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
+            <Text style={styles.subtitle}>Bienvenue! Connectez-vous à votre compte</Text>
           </View>
 
           <View style={styles.form}>
@@ -117,6 +128,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        <NotificationComponent />
       </LinearGradient>
     </KeyboardAvoidingView>
   );

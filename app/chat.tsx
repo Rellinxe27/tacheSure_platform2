@@ -1,8 +1,12 @@
+// app/chat.tsx - Complete chat screen matching your design
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useConversationMessages } from '@/hooks/useMessages';
 import { ArrowLeft, Send, Paperclip, Camera, MapPin, Shield } from 'lucide-react-native';
 import SafetyButton from '@/components/SafetyButton';
+import { useWhatsAppBottomNotification } from '@/components/SnackBar';
 
 interface Message {
   id: string;
@@ -14,100 +18,104 @@ interface Message {
 
 export default function ChatScreen() {
   const router = useRouter();
+  const { conversationId, taskId } = useLocalSearchParams();
+  const { user } = useAuth();
+  const { messages: dbMessages, loading, sendMessage: sendDbMessage, markAsRead } = useConversationMessages(conversationId as string);
+  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
+
   const scrollViewRef = useRef<ScrollView>(null);
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: 'Bonjour! J\'ai vu votre demande de réparation de plomberie. Je suis disponible cet après-midi.',
-      sender: 'provider',
-      timestamp: new Date(Date.now() - 3600000),
-      type: 'text'
-    },
-    {
-      id: '2',
-      text: 'Parfait! À quelle heure pouvez-vous passer?',
-      sender: 'user',
-      timestamp: new Date(Date.now() - 3300000),
-      type: 'text'
-    },
-    {
-      id: '3',
-      text: 'Je peux être là vers 14h30. Avez-vous tous les outils nécessaires?',
-      sender: 'provider',
-      timestamp: new Date(Date.now() - 3000000),
-      type: 'text'
-    },
-    {
-      id: '4',
-      text: 'Oui, j\'ai tout le matériel. Pouvez-vous me confirmer l\'adresse exacte?',
-      sender: 'provider',
-      timestamp: new Date(Date.now() - 2700000),
-      type: 'text'
-    },
-    {
-      id: '5',
-      text: 'Bien sûr, voici ma localisation:',
-      sender: 'user',
-      timestamp: new Date(Date.now() - 2400000),
-      type: 'location'
-    }
-  ]);
+  const [otherUser, setOtherUser] = useState<any>(null);
 
-  const provider = {
-    name: 'Kouadio Jean',
-    isOnline: true,
-    isVerified: true,
-    lastSeen: 'En ligne'
+  // Convert database messages to UI format
+  const messages: Message[] = dbMessages.map(msg => ({
+    id: msg.id,
+    text: msg.content || '',
+    sender: msg.sender_id === user?.id ? 'user' : 'provider',
+    timestamp: new Date(msg.created_at),
+    type: msg.message_type === 'location' ? 'location' : 'text'
+  }));
+
+  // Mark messages as read
+  useEffect(() => {
+    dbMessages.forEach(msg => {
+      if (msg.sender_id !== user?.id && !msg.is_read) {
+        markAsRead(msg.id);
+      }
+    });
+  }, [dbMessages, user?.id]);
+
+  // Get other user info from conversation
+  useEffect(() => {
+    if (dbMessages.length > 0 && user) {
+      // TODO: Fetch actual user profile from participants
+      setOtherUser({
+        name: 'Utilisateur',
+        isOnline: true,
+        isVerified: true,
+        lastSeen: 'En ligne'
+      });
+    }
+  }, [dbMessages, user]);
+
+  const provider = otherUser || {
+    name: 'Conversation',
+    isOnline: false,
+    isVerified: false,
+    lastSeen: 'Hors ligne'
   };
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
-  const sendMessage = () => {
-    if (message.trim()) {
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        text: message.trim(),
-        sender: 'user',
-        timestamp: new Date(),
-        type: 'text'
-      };
-      setMessages([...messages, newMessage]);
-      setMessage('');
-      
-      // Simulate provider response
-      setTimeout(() => {
-        const responses = [
-          'Merci pour l\'information!',
-          'Parfait, je serai là à l\'heure.',
-          'D\'accord, à tout à l\'heure.',
-          'Reçu, merci!'
-        ];
-        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-        const providerMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: randomResponse,
-          sender: 'provider',
-          timestamp: new Date(),
-          type: 'text'
-        };
-        setMessages(prev => [...prev, providerMessage]);
-      }, 1000);
+  const sendMessage = async () => {
+    if (!message.trim()) return;
+
+    const messageText = message.trim();
+    setMessage('');
+
+    // Send to database
+    if (conversationId) {
+      const result = await sendDbMessage(messageText);
+      if (result.error) {
+        showNotification('Erreur lors de l\'envoi', 'error');
+        setMessage(messageText); // Restore message on error
+      }
+    } else {
+      showNotification('Conversation non trouvée', 'error');
     }
   };
 
+  const shareLocation = async () => {
+    if (conversationId) {
+      const result = await sendDbMessage('Position partagée', 'location');
+      if (result.error) {
+        showNotification('Erreur lors du partage', 'error');
+      } else {
+        showNotification('Position partagée', 'success');
+      }
+    }
+  };
+
+  const handleAttachment = () => {
+    showNotification('Fonctionnalité bientôt disponible', 'info');
+  };
+
+  const handleCamera = () => {
+    showNotification('Appareil photo bientôt disponible', 'info');
+  };
+
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('fr-FR', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
   const renderMessage = (msg: Message) => {
     const isUser = msg.sender === 'user';
-    
+
     if (msg.type === 'location') {
       return (
         <View key={msg.id} style={[
@@ -140,7 +148,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
@@ -180,16 +188,16 @@ export default function ChatScreen() {
             Cette conversation est chiffrée et sécurisée
           </Text>
         </View>
-        
+
         {messages.map(renderMessage)}
       </ScrollView>
 
       <View style={styles.inputContainer}>
         <View style={styles.inputRow}>
-          <TouchableOpacity style={styles.attachButton}>
+          <TouchableOpacity style={styles.attachButton} onPress={handleAttachment}>
             <Paperclip size={20} color="#666" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.cameraButton}>
+          <TouchableOpacity style={styles.cameraButton} onPress={handleCamera}>
             <Camera size={20} color="#666" />
           </TouchableOpacity>
           <TextInput
@@ -200,8 +208,10 @@ export default function ChatScreen() {
             multiline
             maxLength={500}
             placeholderTextColor="#666"
+            onSubmitEditing={sendMessage}
+            blurOnSubmit={false}
           />
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.sendButton,
               message.trim() ? styles.sendButtonActive : styles.sendButtonInactive
@@ -212,14 +222,16 @@ export default function ChatScreen() {
             <Send size={20} color={message.trim() ? "#FFFFFF" : "#666"} />
           </TouchableOpacity>
         </View>
-        
+
         <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.quickAction}>
+          <TouchableOpacity style={styles.quickAction} onPress={shareLocation}>
             <MapPin size={16} color="#FF7A00" />
             <Text style={styles.quickActionText}>Partager ma position</Text>
           </TouchableOpacity>
         </View>
       </View>
+
+      <NotificationComponent />
     </KeyboardAvoidingView>
   );
 }
@@ -353,6 +365,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
   },
   inputRow: {
     flexDirection: 'row',
@@ -378,6 +391,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#333',
     maxHeight: 100,
+    textAlignVertical: 'center',
   },
   sendButton: {
     width: 40,
@@ -389,6 +403,11 @@ const styles = StyleSheet.create({
   },
   sendButtonActive: {
     backgroundColor: '#FF7A00',
+    shadowColor: '#FF7A00',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   sendButtonInactive: {
     backgroundColor: '#F5F5F5',

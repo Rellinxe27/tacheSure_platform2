@@ -1,4 +1,6 @@
 // utils/validation.ts
+import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+
 export const validateEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
@@ -12,17 +14,18 @@ export const validatePhone = (phone: string): boolean => {
 
 export const validatePassword = (password: string): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
+  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
 
   if (password.length < 6) {
-    errors.push('Le mot de passe doit contenir au moins 6 caractères');
+    showNotification('Le mot de passe doit contenir au moins 6 caractères', 'error');
   }
 
   if (!/[A-Z]/.test(password)) {
-    errors.push('Le mot de passe doit contenir au moins une majuscule');
+    showNotification('Le mot de passe doit contenir au moins une majuscule', 'error');
   }
 
   if (!/[0-9]/.test(password)) {
-    errors.push('Le mot de passe doit contenir au moins un chiffre');
+    showNotification('Le mot de passe doit contenir au moins un chiffre', 'error');
   }
 
   return {

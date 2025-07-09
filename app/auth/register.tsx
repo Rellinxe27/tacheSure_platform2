@@ -16,10 +16,13 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Lock, User, Phone, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { validateEmail, validatePassword } from '@/utils/validation';
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { signUp, loading } = useAuth();
+  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -34,36 +37,45 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!formData.fullName || !formData.email || !formData.password) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
+      showNotification('Veuillez remplir tous les champs obligatoires', 'error');
       return;
     }
+
+    if (!validateEmail(formData.email)) {
+      showNotification('Adresse email invalide', 'error');
+      return;
+    }
+
+    if (!validateEmail(formData.email)) {
+      showNotification('Adresse email invalide', 'error');
+      return;
+    }
+
+    const passwordValidation = validatePassword(formData.password);
+    if (!passwordValidation.isValid) {
+      showNotification(passwordValidation.errors[0], 'error');
+      return;
+    }
+
 
     if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Erreur', 'Les mots de passe ne correspondent pas');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères');
+      showNotification('Les mots de passe ne correspondent pas', 'error');
       return;
     }
 
     setIsLoading(true);
-    const { error } = await signUp(formData.email, formData.password, {
+    const result = await signUp(formData.email, formData.password, {
       full_name: formData.fullName,
       phone: formData.phone,
       role: formData.role,
     });
     setIsLoading(false);
 
-    if (error) {
-      Alert.alert('Erreur d\'inscription', error);
+    if (result.error) {
+      showNotification(result.error, 'error');
     } else {
-      Alert.alert(
-        'Inscription réussie',
-        'Votre compte a été créé avec succès. Vérifiez votre email pour confirmer votre compte.',
-        [{ text: 'OK', onPress: () => router.replace('/onboarding') }]
-      );
+      showNotification('Votre compte a été créé avec succès. Vérifiez votre email pour confirmer votre compte.', 'success');
+      router.replace('/onboarding')
     }
   };
 
@@ -88,6 +100,7 @@ export default function RegisterScreen() {
                 value={formData.fullName}
                 onChangeText={(text) => setFormData({...formData, fullName: text})}
                 placeholderTextColor="#666"
+                autoCapitalize="words"
               />
             </View>
 

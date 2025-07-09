@@ -6,7 +6,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { useConversationMessages } from '@/hooks/useMessages';
 import { ArrowLeft, Send, Paperclip, Camera, MapPin, Shield } from 'lucide-react-native';
 import SafetyButton from '@/components/SafetyButton';
-import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 
 interface Message {
   id: string;
@@ -21,7 +21,7 @@ export default function ChatScreen() {
   const { conversationId, taskId } = useLocalSearchParams();
   const { user } = useAuth();
   const { messages: dbMessages, loading, sendMessage: sendDbMessage, markAsRead } = useConversationMessages(conversationId as string);
-  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
 
   const scrollViewRef = useRef<ScrollView>(null);
   const [message, setMessage] = useState('');

@@ -16,13 +16,13 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Lock, User, Phone, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 import { validateEmail, validatePassword } from '@/utils/validation';
 
 export default function RegisterScreen() {
   const router = useRouter();
   const { signUp, loading } = useAuth();
-  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',

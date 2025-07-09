@@ -9,13 +9,13 @@ import TrustBadge from '@/components/TrustBadge';
 import SafetyButton from '@/components/SafetyButton';
 import PaymentSelector from '@/components/PaymentSelector';
 import { formatCurrency, formatTimeAgo } from '@/utils/formatting';
-import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 
 export default function TaskDetailsScreen() {
   const router = useRouter();
   const { taskId } = useLocalSearchParams();
   const { user, profile } = useAuth();
-  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
 
   const [task, setTask] = useState<any>(null);
   const [applications, setApplications] = useState<any[]>([]);

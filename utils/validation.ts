@@ -1,5 +1,5 @@
 // utils/validation.ts
-import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 
 export const validateEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -14,7 +14,7 @@ export const validatePhone = (phone: string): boolean => {
 
 export const validatePassword = (password: string): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
-  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
 
   if (password.length < 6) {
     showNotification('Le mot de passe doit contenir au moins 6 caractères', 'error');

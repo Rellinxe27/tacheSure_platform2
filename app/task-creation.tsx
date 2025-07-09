@@ -1,20 +1,20 @@
 // app/task-creation.tsx - Connected to database
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useTasks } from '@/hooks/useTasks';
 import { useCategories } from '@/hooks/useCategories';
 import { MapPin, DollarSign, Clock, Camera } from 'lucide-react-native';
 import { validateTaskData } from '@/utils/validation';
-import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 
 export default function TaskCreationScreen() {
   const router = useRouter();
   const { user, profile } = useAuth();
   const { createTask } = useTasks();
   const { categories } = useCategories();
-  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification();
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
 
   const [taskData, setTaskData] = useState({
     title: '',

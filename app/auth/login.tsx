@@ -15,13 +15,13 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { useWhatsAppBottomNotification } from '@/components/SnackBar';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 import { validateEmail } from '@/utils/validation';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { signIn, loading } = useAuth();
-  const { showNotification, NotificationComponent } = useWhatsAppBottomNotification()
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification()
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

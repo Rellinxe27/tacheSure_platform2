@@ -1,33 +1,94 @@
 // app/(tabs)/post-task.tsx (Updated for role-based functionality)
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
-import { Camera, MapPin, Calendar, DollarSign, Clock, Shield } from 'lucide-react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Switch } from 'react-native';
+import { Camera, MapPin, Calendar, DollarSign, Clock, Shield, Plus, Edit3 } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useTasks } from '@/hooks/useTasks';
+import { useCategories } from '@/hooks/useCategories';
+import { getCurrentLocation } from '@/utils/permissions';
+import * as Location from 'expo-location';
 import RoleBasedAccess from '@/components/RoleBasedAccess';
+import { formatCurrency } from '@/utils/formatting';
+import { useServices } from '@/hooks/useServices';
+import { usePayments } from '@/hooks/usePayments';
+import { useReviews } from '@/hooks/useReviews';
 
 export default function PostTaskScreen() {
   const { profile, user } = useAuth();
   const { createTask } = useTasks();
+  const { categories, loading: loadingCategories } = useCategories();
   const [taskData, setTaskData] = useState({
     title: '',
     description: '',
     category: '',
     location: '',
+    coordinates: null as { lat: number; lng: number } | null,
+    fullAddress: null as any,
     budget_min: '',
     budget_max: '',
     urgency: 'normal' as 'low' | 'normal' | 'high' | 'emergency',
     photos: [],
   });
 
-  const categories = [
-    { id: 'home_services', name: 'Nettoyage', icon: '🧹' },
-    { id: 'professional_services', name: 'Réparation', icon: '🔧' },
-    { id: 'transport_logistics', name: 'Livraison', icon: '🚚' },
-    { id: 'professional_services', name: 'Tutorat', icon: '📚' },
-    { id: 'home_services', name: 'Jardinage', icon: '🌱' },
-    { id: 'events_hospitality', name: 'Cuisine', icon: '👨‍🍳' },
-  ];
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const { services, loading: servicesLoading, updateService } = useServices(user?.id);
+  onst { stats: paymentStats, loading: paymentsLoading } = usePayments();
+  const { stats: reviewStats, loading: reviewsLoading } = useReviews(user?.id);
+
+  const reverseGeocode = async (latitude: number, longitude: number) => {
+    try {
+      const result = await Location.reverseGeocodeAsync({ latitude, longitude });
+      if (result.length > 0) {
+        const address = result[0];
+        return {
+          street: `${address.streetNumber || ''} ${address.street || ''}`.trim(),
+          district: address.district || address.subregion || '',
+          city: address.city || 'Abidjan',
+          postalCode: address.postalCode || '',
+          country: address.country || 'Côte d\'Ivoire',
+          fullAddress: [
+            address.streetNumber,
+            address.street,
+            address.district,
+            address.city,
+            address.country
+          ].filter(Boolean).join(', ')
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Reverse geocoding error:', error);
+      return null;
+    }
+  };
+
+  const handleGetCurrentLocation = async () => {
+    setGettingLocation(true);
+    try {
+      const location = await getCurrentLocation();
+      if (location) {
+        const { latitude, longitude } = location.coords;
+
+        // Get address from coordinates
+        const addressInfo = await reverseGeocode(latitude, longitude);
+
+        setTaskData(prev => ({
+          ...prev,
+          coordinates: { lat: latitude, lng: longitude },
+          location: addressInfo?.fullAddress || 'Position GPS récupérée',
+          fullAddress: addressInfo
+        }));
+
+        Alert.alert('Succès', 'Position et adresse récupérées');
+      } else {
+        Alert.alert('Erreur', 'Impossible de récupérer votre position');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Erreur lors de la récupération de la position');
+    } finally {
+      setGettingLocation(false);
+    }
+  };
 
   const urgencyLevels = [
     { id: 'low', name: 'Pas urgent', color: '#4CAF50' },
@@ -51,9 +112,18 @@ export default function PostTaskScreen() {
       title: taskData.title,
       description: taskData.description,
       category_id: taskData.category,
-      location: { type: 'Point', coordinates: [0, 0] }, // TODO: Get actual location
-      address: {
-        street: taskData.location,
+      location: taskData.coordinates
+        ? `POINT(${taskData.coordinates.lng} ${taskData.coordinates.lat})`
+        : `POINT(-4.0435 5.3364)`, // Default to Abidjan if no location selected
+      address: taskData.fullAddress ? {
+        street: taskData.fullAddress.street,
+        district: taskData.fullAddress.district,
+        city: taskData.fullAddress.city,
+        postalCode: taskData.fullAddress.postalCode,
+        country: taskData.fullAddress.country,
+        coordinates: taskData.coordinates
+      } : {
+        street: taskData.location || 'Adresse non spécifiée',
         city: 'Abidjan',
         country: 'Côte d\'Ivoire'
       },
@@ -79,6 +149,8 @@ export default function PostTaskScreen() {
                 description: '',
                 category: '',
                 location: '',
+                coordinates: null,
+                fullAddress: null,
                 budget_min: '',
                 budget_max: '',
                 urgency: 'normal',
@@ -93,16 +165,57 @@ export default function PostTaskScreen() {
   // Show different content based on user role
   if (profile?.role === 'provider') {
     return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Mes Services</Text>
-          <Text style={styles.subtitle}>Gérez vos services et disponibilités</Text>
-        </View>
-        {/* TODO: Implement provider services management */}
-        <View style={styles.content}>
-          <Text>Interface de gestion des services en cours de développement...</Text>
-        </View>
+      {/* My Services */}
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Mes services</Text>
+        <TouchableOpacity onPress={() => router.push('/service-management')}>
+          <Plus size={20} color="#FF7A00" />
+        </TouchableOpacity>
       </View>
+
+      {servicesLoading ? (
+        <Text style={styles.loadingText}>Chargement des services...</Text>
+      ) : services.length === 0 ? (
+        <View style={styles.emptyServices}>
+          <Text style={styles.emptyServicesText}>
+            Aucun service configuré
+          </Text>
+          <TouchableOpacity
+            style={styles.addServiceButton}
+            onPress={() => router.push('/service-management')}
+          >
+            <Text style={styles.addServiceText}>Ajouter un service</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        services.slice(0, 3).map((service) => (
+          <View key={service.id} style={styles.serviceCard}>
+            <View style={styles.serviceInfo}>
+              <Text style={styles.serviceName}>{service.name}</Text>
+              <Text style={styles.servicePrice}>
+                {formatCurrency(service.price_min)} - {formatCurrency(service.price_max)}
+              </Text>
+            </View>
+
+            <View style={styles.serviceControls}>
+              <TouchableOpacity
+                style={styles.editServiceButton}
+                onPress={() => router.push(`/edit-service?serviceId=${service.id}`)}
+              >
+                <Edit3 size={16} color="#666" />
+              </TouchableOpacity>
+              <Switch
+                value={service.is_active || false}
+                onValueChange={(value) => handleServiceToggle(service.id, value)}
+                trackColor={{ false: '#E0E0E0', true: '#4CAF50' }}
+                thumbColor={service.is_active ? '#FFFFFF' : '#F4F3F4'}
+              />
+            </View>
+          </View>
+        ))
+      )}
+    </View>
     );
   }
 
@@ -145,28 +258,32 @@ export default function PostTaskScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Catégorie *</Text>
-            <View style={styles.categoriesGrid}>
-              {categories.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  style={[
-                    styles.categoryCard,
-                    taskData.category === category.id && styles.selectedCategory,
-                  ]}
-                  onPress={() => setTaskData({...taskData, category: category.id})}
-                >
-                  <Text style={styles.categoryIcon}>{category.icon}</Text>
-                  <Text
+            {loadingCategories ? (
+              <Text style={styles.loadingText}>Chargement des catégories...</Text>
+            ) : (
+              <View style={styles.categoriesGrid}>
+                {categories.map((category) => (
+                  <TouchableOpacity
+                    key={category.id}
                     style={[
-                      styles.categoryText,
-                      taskData.category === category.id && styles.selectedCategoryText,
+                      styles.categoryCard,
+                      taskData.category === category.id && styles.selectedCategory,
                     ]}
+                    onPress={() => setTaskData({...taskData, category: category.id})}
                   >
-                    {category.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+                    <Text style={styles.categoryIcon}>{category.icon || '📋'}</Text>
+                    <Text
+                      style={[
+                        styles.categoryText,
+                        taskData.category === category.id && styles.selectedCategoryText,
+                      ]}
+                    >
+                      {category.name_fr}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
 
           <View style={styles.section}>
@@ -177,10 +294,24 @@ export default function PostTaskScreen() {
                 style={styles.locationInput}
                 placeholder="Entrez votre adresse"
                 value={taskData.location}
-                onChangeText={(text) => setTaskData({...taskData, location: text})}
+                onChangeText={(text) => setTaskData({...taskData, location: text, coordinates: null})}
                 placeholderTextColor="#666"
               />
+              <TouchableOpacity
+                style={styles.locationButton}
+                onPress={handleGetCurrentLocation}
+                disabled={gettingLocation}
+              >
+                <Text style={styles.locationButtonText}>
+                  {gettingLocation ? 'Recherche...' : 'Ma position'}
+                </Text>
+              </TouchableOpacity>
             </View>
+            {taskData.coordinates && (
+              <Text style={styles.coordinatesText}>
+                📍 Position GPS sélectionnée
+              </Text>
+            )}
           </View>
 
           <View style={styles.section}>
@@ -346,6 +477,13 @@ const styles = StyleSheet.create({
   selectedCategoryText: {
     color: '#FF7A00',
   },
+  loadingText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    textAlign: 'center',
+    padding: 20,
+  },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -362,6 +500,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Regular',
     color: '#333',
+  },
+  locationButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FF7A00',
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  locationButtonText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#FFFFFF',
+  },
+  coordinatesText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#4CAF50',
+    marginTop: 8,
   },
   budgetRow: {
     flexDirection: 'row',

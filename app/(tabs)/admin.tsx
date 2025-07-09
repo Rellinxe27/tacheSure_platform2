@@ -422,7 +422,7 @@ export default function AdminScreen() {
                   </View>
 
                   <View style={styles.documentsContainer}>
-                    <Text style={styles.documentsLabel}>Documents soumis:</Text>
+                    <Text style={styles.documentsLabel}>Documents soumiss:</Text>
                     <View style={styles.documentsList}>
                       {verification.documents.map((doc, index) => (
                         <View key={index} style={styles.documentTag}>

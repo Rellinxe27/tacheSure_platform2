@@ -1,25 +1,32 @@
+// app/(tabs)/post-task.tsx (Updated for role-based functionality)
 import { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { Camera, MapPin, Calendar, DollarSign, Clock, Shield } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useTasks } from '@/hooks/useTasks';
+import RoleBasedAccess from '@/components/RoleBasedAccess';
 
 export default function PostTaskScreen() {
+  const { profile, user } = useAuth();
+  const { createTask } = useTasks();
   const [taskData, setTaskData] = useState({
     title: '',
     description: '',
     category: '',
     location: '',
-    budget: '',
-    urgency: 'normal',
+    budget_min: '',
+    budget_max: '',
+    urgency: 'normal' as 'low' | 'normal' | 'high' | 'emergency',
     photos: [],
   });
 
   const categories = [
-    { id: 'cleaning', name: 'Nettoyage', icon: '🧹' },
-    { id: 'repair', name: 'Réparation', icon: '🔧' },
-    { id: 'delivery', name: 'Livraison', icon: '🚚' },
-    { id: 'tutoring', name: 'Tutorat', icon: '📚' },
-    { id: 'gardening', name: 'Jardinage', icon: '🌱' },
-    { id: 'cooking', name: 'Cuisine', icon: '👨‍🍳' },
+    { id: 'home_services', name: 'Nettoyage', icon: '🧹' },
+    { id: 'professional_services', name: 'Réparation', icon: '🔧' },
+    { id: 'transport_logistics', name: 'Livraison', icon: '🚚' },
+    { id: 'professional_services', name: 'Tutorat', icon: '📚' },
+    { id: 'home_services', name: 'Jardinage', icon: '🌱' },
+    { id: 'events_hospitality', name: 'Cuisine', icon: '👨‍🍳' },
   ];
 
   const urgencyLevels = [
@@ -28,167 +35,232 @@ export default function PostTaskScreen() {
     { id: 'high', name: 'Urgent', color: '#FF5722' },
   ];
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!taskData.title || !taskData.description || !taskData.category) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
       return;
     }
 
-    Alert.alert(
-      'Tâche publiée!',
-      'Votre tâche a été publiée avec succès. Vous recevrez des candidatures bientôt.',
-      [
-        { text: 'OK', onPress: () => {
-          // Reset form
-          setTaskData({
-            title: '',
-            description: '',
-            category: '',
-            location: '',
-            budget: '',
-            urgency: 'normal',
-            photos: [],
-          });
-        }}
-      ]
-    );
+    if (!user) {
+      Alert.alert('Erreur', 'Vous devez être connecté pour publier une tâche');
+      return;
+    }
+
+    const taskPayload = {
+      client_id: user.id,
+      title: taskData.title,
+      description: taskData.description,
+      category_id: taskData.category,
+      location: { type: 'Point', coordinates: [0, 0] }, // TODO: Get actual location
+      address: {
+        street: taskData.location,
+        city: 'Abidjan',
+        country: 'Côte d\'Ivoire'
+      },
+      budget_min: taskData.budget_min ? parseInt(taskData.budget_min) : null,
+      budget_max: taskData.budget_max ? parseInt(taskData.budget_max) : null,
+      urgency: taskData.urgency,
+      status: 'posted' as const,
+      preferred_language: 'Français',
+    };
+
+    const { error } = await createTask(taskPayload);
+
+    if (error) {
+      Alert.alert('Erreur', error);
+    } else {
+      Alert.alert(
+        'Tâche publiée!',
+        'Votre tâche a été publiée avec succès. Vous recevrez des candidatures bientôt.',
+        [
+          { text: 'OK', onPress: () => {
+              setTaskData({
+                title: '',
+                description: '',
+                category: '',
+                location: '',
+                budget_min: '',
+                budget_max: '',
+                urgency: 'normal',
+                photos: [],
+              });
+            }}
+        ]
+      );
+    }
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Publier une tâche</Text>
-        <Text style={styles.subtitle}>Décrivez votre besoin en détail</Text>
+  // Show different content based on user role
+  if (profile?.role === 'provider') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Mes Services</Text>
+          <Text style={styles.subtitle}>Gérez vos services et disponibilités</Text>
+        </View>
+        {/* TODO: Implement provider services management */}
+        <View style={styles.content}>
+          <Text>Interface de gestion des services en cours de développement...</Text>
+        </View>
       </View>
+    );
+  }
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Titre de la tâche *</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: Réparation de plomberie urgente"
-            value={taskData.title}
-            onChangeText={(text) => setTaskData({...taskData, title: text})}
-            placeholderTextColor="#666"
-          />
+  return (
+    <RoleBasedAccess allowedRoles={['client']} fallback={
+      <View style={styles.container}>
+        <Text>Accès non autorisé</Text>
+      </View>
+    }>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Publier une tâche</Text>
+          <Text style={styles.subtitle}>Décrivez votre besoin en détail</Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Description détaillée *</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Décrivez votre tâche en détail..."
-            value={taskData.description}
-            onChangeText={(text) => setTaskData({...taskData, description: text})}
-            multiline
-            numberOfLines={4}
-            placeholderTextColor="#666"
-          />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Catégorie *</Text>
-          <View style={styles.categoriesGrid}>
-            {categories.map((category) => (
-              <TouchableOpacity
-                key={category.id}
-                style={[
-                  styles.categoryCard,
-                  taskData.category === category.id && styles.selectedCategory,
-                ]}
-                onPress={() => setTaskData({...taskData, category: category.id})}
-              >
-                <Text style={styles.categoryIcon}>{category.icon}</Text>
-                <Text
-                  style={[
-                    styles.categoryText,
-                    taskData.category === category.id && styles.selectedCategoryText,
-                  ]}
-                >
-                  {category.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Localisation</Text>
-          <View style={styles.locationContainer}>
-            <MapPin size={20} color="#666" />
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Titre de la tâche *</Text>
             <TextInput
-              style={styles.locationInput}
-              placeholder="Entrez votre adresse"
-              value={taskData.location}
-              onChangeText={(text) => setTaskData({...taskData, location: text})}
+              style={styles.input}
+              placeholder="Ex: Réparation de plomberie urgente"
+              value={taskData.title}
+              onChangeText={(text) => setTaskData({...taskData, title: text})}
               placeholderTextColor="#666"
             />
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Budget approximatif</Text>
-          <View style={styles.budgetContainer}>
-            <DollarSign size={20} color="#666" />
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Description détaillée *</Text>
             <TextInput
-              style={styles.budgetInput}
-              placeholder="Ex: 25,000 FCFA"
-              value={taskData.budget}
-              onChangeText={(text) => setTaskData({...taskData, budget: text})}
-              keyboardType="numeric"
+              style={[styles.input, styles.textArea]}
+              placeholder="Décrivez votre tâche en détail..."
+              value={taskData.description}
+              onChangeText={(text) => setTaskData({...taskData, description: text})}
+              multiline
+              numberOfLines={4}
               placeholderTextColor="#666"
             />
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Urgence</Text>
-          <View style={styles.urgencyContainer}>
-            {urgencyLevels.map((level) => (
-              <TouchableOpacity
-                key={level.id}
-                style={[
-                  styles.urgencyButton,
-                  taskData.urgency === level.id && styles.selectedUrgency,
-                  { borderColor: level.color },
-                ]}
-                onPress={() => setTaskData({...taskData, urgency: level.id})}
-              >
-                <Clock size={16} color={level.color} />
-                <Text
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Catégorie *</Text>
+            <View style={styles.categoriesGrid}>
+              {categories.map((category) => (
+                <TouchableOpacity
+                  key={category.id}
                   style={[
-                    styles.urgencyText,
-                    { color: level.color },
-                    taskData.urgency === level.id && styles.selectedUrgencyText,
+                    styles.categoryCard,
+                    taskData.category === category.id && styles.selectedCategory,
                   ]}
+                  onPress={() => setTaskData({...taskData, category: category.id})}
                 >
-                  {level.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text style={styles.categoryIcon}>{category.icon}</Text>
+                  <Text
+                    style={[
+                      styles.categoryText,
+                      taskData.category === category.id && styles.selectedCategoryText,
+                    ]}
+                  >
+                    {category.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Photos (optionnel)</Text>
-          <TouchableOpacity style={styles.photoButton}>
-            <Camera size={24} color="#666" />
-            <Text style={styles.photoButtonText}>Ajouter des photos</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Localisation</Text>
+            <View style={styles.locationContainer}>
+              <MapPin size={20} color="#666" />
+              <TextInput
+                style={styles.locationInput}
+                placeholder="Entrez votre adresse"
+                value={taskData.location}
+                onChangeText={(text) => setTaskData({...taskData, location: text})}
+                placeholderTextColor="#666"
+              />
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Budget approximatif (FCFA)</Text>
+            <View style={styles.budgetRow}>
+              <View style={styles.budgetContainer}>
+                <DollarSign size={20} color="#666" />
+                <TextInput
+                  style={styles.budgetInput}
+                  placeholder="Min"
+                  value={taskData.budget_min}
+                  onChangeText={(text) => setTaskData({...taskData, budget_min: text})}
+                  keyboardType="numeric"
+                  placeholderTextColor="#666"
+                />
+              </View>
+              <Text style={styles.budgetSeparator}>à</Text>
+              <View style={styles.budgetContainer}>
+                <DollarSign size={20} color="#666" />
+                <TextInput
+                  style={styles.budgetInput}
+                  placeholder="Max"
+                  value={taskData.budget_max}
+                  onChangeText={(text) => setTaskData({...taskData, budget_max: text})}
+                  keyboardType="numeric"
+                  placeholderTextColor="#666"
+                />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Urgence</Text>
+            <View style={styles.urgencyContainer}>
+              {urgencyLevels.map((level) => (
+                <TouchableOpacity
+                  key={level.id}
+                  style={[
+                    styles.urgencyButton,
+                    taskData.urgency === level.id && styles.selectedUrgency,
+                    { borderColor: level.color },
+                  ]}
+                  onPress={() => setTaskData({...taskData, urgency: level.id as any})}
+                >
+                  <Clock size={16} color={level.color} />
+                  <Text
+                    style={[
+                      styles.urgencyText,
+                      { color: level.color },
+                      taskData.urgency === level.id && styles.selectedUrgencyText,
+                    ]}
+                  >
+                    {level.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Photos (optionnel)</Text>
+            <TouchableOpacity style={styles.photoButton}>
+              <Camera size={24} color="#666" />
+              <Text style={styles.photoButtonText}>Ajouter des photos</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.safetyNote}>
+            <Shield size={20} color="#4CAF50" />
+            <Text style={styles.safetyText}>
+              Vos informations sont sécurisées. Seuls les prestataires vérifiés peuvent voir vos détails.
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+            <Text style={styles.submitButtonText}>Publier la tâche</Text>
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.safetyNote}>
-          <Shield size={20} color="#4CAF50" />
-          <Text style={styles.safetyText}>
-            Vos informations sont sécurisées. Seuls les prestataires vérifiés peuvent voir vos détails.
-          </Text>
-        </View>
-
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-          <Text style={styles.submitButtonText}>Publier la tâche</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </View>
+        </ScrollView>
+      </View>
+    </RoleBasedAccess>
   );
 }
 
@@ -291,6 +363,11 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#333',
   },
+  budgetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   budgetContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -300,6 +377,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+    flex: 1,
   },
   budgetInput: {
     flex: 1,
@@ -307,6 +385,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Regular',
     color: '#333',
+  },
+  budgetSeparator: {
+    fontSize: 16,
+    fontFamily: 'Inter-Medium',
+    color: '#666',
+    marginHorizontal: 16,
   },
   urgencyContainer: {
     flexDirection: 'row',

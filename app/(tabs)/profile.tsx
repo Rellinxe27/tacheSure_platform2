@@ -1,28 +1,66 @@
+// app/(tabs)/profile.tsx (Updated with real data)
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { User, Shield, Star, Settings, CircleHelp as HelpCircle, LogOut, Phone, Mail, MapPin, Calendar } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import RoleBasedAccess from '@/components/RoleBasedAccess';
+import { useEffect, useState } from 'react';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { profile, signOut, user } = useAuth();
+  const [stats, setStats] = useState({
+    completedTasks: 0,
+    rating: 0,
+    reviews: 0,
+  });
 
-  const userProfile = {
-    name: 'Koffi Adjoua',
-    email: 'koffi.adjoua@email.com',
-    phone: '+225 07 12 34 56 78',
-    location: 'Abidjan, Côte d\'Ivoire',
-    joinDate: 'Membre depuis Mars 2024',
-    verified: true,
-    rating: 4.8,
-    completedTasks: 23,
-    trustLevel: 'Vérifié',
-  };
+  useEffect(() => {
+    // TODO: Fetch user statistics from Supabase
+    // For now, using mock data
+    setStats({
+      completedTasks: 23,
+      rating: 4.8,
+      reviews: 45,
+    });
+  }, [profile]);
 
   const menuItems = [
-    { id: 'provider_dashboard', title: 'Tableau de bord prestataire', icon: Settings, color: '#FF7A00' },
-    { id: 'settings', title: 'Paramètres', icon: Settings, color: '#666' },
-    { id: 'verification', title: 'Niveau de vérification', icon: Shield, color: '#4CAF50' },
-    { id: 'help', title: 'Aide et support', icon: HelpCircle, color: '#2196F3' },
-    { id: 'logout', title: 'Déconnexion', icon: LogOut, color: '#FF5722' },
+    {
+      id: 'provider_dashboard',
+      title: 'Tableau de bord prestataire',
+      icon: Settings,
+      color: '#FF7A00',
+      roles: ['provider'] as const
+    },
+    {
+      id: 'verification',
+      title: 'Niveau de vérification',
+      icon: Shield,
+      color: '#4CAF50',
+      roles: ['client', 'provider'] as const
+    },
+    {
+      id: 'settings',
+      title: 'Paramètres',
+      icon: Settings,
+      color: '#666',
+      roles: ['client', 'provider', 'admin'] as const
+    },
+    {
+      id: 'help',
+      title: 'Aide et support',
+      icon: HelpCircle,
+      color: '#2196F3',
+      roles: ['client', 'provider', 'admin'] as const
+    },
+    {
+      id: 'logout',
+      title: 'Déconnexion',
+      icon: LogOut,
+      color: '#FF5722',
+      roles: ['client', 'provider', 'admin'] as const
+    },
   ];
 
   const handleMenuPress = (itemId: string) => {
@@ -30,13 +68,16 @@ export default function ProfileScreen() {
       case 'provider_dashboard':
         router.push('/provider-dashboard');
         break;
+      case 'verification':
+        router.push('/verification');
+        break;
       case 'logout':
         Alert.alert(
           'Déconnexion',
           'Êtes-vous sûr de vouloir vous déconnecter?',
           [
             { text: 'Annuler', style: 'cancel' },
-            { text: 'Déconnexion', style: 'destructive', onPress: () => {} },
+            { text: 'Déconnexion', style: 'destructive', onPress: signOut },
           ]
         );
         break;
@@ -44,6 +85,23 @@ export default function ProfileScreen() {
         Alert.alert('Information', `Fonction ${itemId} en cours de développement`);
     }
   };
+
+  const getVerificationLevelText = (level: string) => {
+    switch (level) {
+      case 'community': return 'Vérifié par la communauté';
+      case 'enhanced': return 'Vérification renforcée';
+      case 'government': return 'Vérifié par l\'État';
+      default: return 'Vérification basique';
+    }
+  };
+
+  if (!profile) {
+    return (
+      <View style={styles.container}>
+        <Text>Chargement du profil...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -59,61 +117,82 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.profileInfo}>
               <View style={styles.nameContainer}>
-                <Text style={styles.profileName}>{userProfile.name}</Text>
-                {userProfile.verified && (
+                <Text style={styles.profileName}>{profile.full_name || 'Utilisateur'}</Text>
+                {profile.is_verified && (
                   <Shield size={18} color="#4CAF50" />
                 )}
               </View>
-              <Text style={styles.trustLevel}>{userProfile.trustLevel}</Text>
+              <Text style={styles.trustLevel}>
+                {getVerificationLevelText(profile.verification_level)}
+              </Text>
+              <Text style={styles.roleText}>
+                {profile.role === 'client' ? 'Client' :
+                  profile.role === 'provider' ? 'Prestataire' :
+                    profile.role === 'admin' ? 'Administrateur' : 'Utilisateur'}
+              </Text>
             </View>
           </View>
 
-          <View style={styles.profileStats}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{userProfile.rating}</Text>
-              <View style={styles.statLabel}>
-                <Star size={12} color="#FFD700" fill="#FFD700" />
-                <Text style={styles.statText}>Note</Text>
+          <RoleBasedAccess allowedRoles={['provider']}>
+            <View style={styles.profileStats}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.rating}</Text>
+                <View style={styles.statLabel}>
+                  <Star size={12} color="#FFD700" fill="#FFD700" />
+                  <Text style={styles.statText}>Note</Text>
+                </View>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.completedTasks}</Text>
+                <Text style={styles.statText}>Tâches</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{profile.trust_score || 0}</Text>
+                <Text style={styles.statText}>Confiance</Text>
               </View>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{userProfile.completedTasks}</Text>
-              <Text style={styles.statText}>Tâches</Text>
-            </View>
-          </View>
+          </RoleBasedAccess>
 
           <View style={styles.profileDetails}>
             <View style={styles.detailItem}>
               <Mail size={16} color="#666" />
-              <Text style={styles.detailText}>{userProfile.email}</Text>
+              <Text style={styles.detailText}>{profile.email}</Text>
             </View>
-            <View style={styles.detailItem}>
-              <Phone size={16} color="#666" />
-              <Text style={styles.detailText}>{userProfile.phone}</Text>
-            </View>
+            {profile.phone && (
+              <View style={styles.detailItem}>
+                <Phone size={16} color="#666" />
+                <Text style={styles.detailText}>{profile.phone}</Text>
+              </View>
+            )}
             <View style={styles.detailItem}>
               <MapPin size={16} color="#666" />
-              <Text style={styles.detailText}>{userProfile.location}</Text>
+              <Text style={styles.detailText}>{profile.nationality || 'Côte d\'Ivoire'}</Text>
             </View>
             <View style={styles.detailItem}>
               <Calendar size={16} color="#666" />
-              <Text style={styles.detailText}>{userProfile.joinDate}</Text>
+              <Text style={styles.detailText}>
+                Membre depuis {new Date(profile.created_at || '').toLocaleDateString('fr-FR', {
+                month: 'long',
+                year: 'numeric'
+              })}
+              </Text>
             </View>
           </View>
         </View>
 
         <View style={styles.menuSection}>
           {menuItems.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.menuItem}
-              onPress={() => handleMenuPress(item.id)}
-            >
-              <View style={styles.menuItemContent}>
-                <item.icon size={20} color={item.color} />
-                <Text style={styles.menuItemText}>{item.title}</Text>
-              </View>
-            </TouchableOpacity>
+            <RoleBasedAccess key={item.id} allowedRoles={item.roles}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => handleMenuPress(item.id)}
+              >
+                <View style={styles.menuItemContent}>
+                  <item.icon size={20} color={item.color} />
+                  <Text style={styles.menuItemText}>{item.title}</Text>
+                </View>
+              </TouchableOpacity>
+            </RoleBasedAccess>
           ))}
         </View>
 
@@ -123,7 +202,8 @@ export default function ProfileScreen() {
             <Text style={styles.safetyTitle}>Sécurité garantie</Text>
           </View>
           <Text style={styles.safetyText}>
-            Votre profil est vérifié et sécurisé. Continuez à maintenir un comportement exemplaire pour préserver votre statut de confiance.
+            Votre profil est {profile.is_verified ? 'vérifié et ' : ''}sécurisé.
+            {profile.role === 'provider' && ' Continuez à maintenir un comportement exemplaire pour préserver votre statut de confiance.'}
           </Text>
         </View>
       </ScrollView>
@@ -194,6 +274,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: 'Inter-Medium',
     color: '#4CAF50',
+    marginBottom: 4,
+  },
+  roleText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    textTransform: 'capitalize',
   },
   profileStats: {
     flexDirection: 'row',

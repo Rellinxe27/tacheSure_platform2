@@ -48,7 +48,7 @@ export default function ProviderSettingsScreen() {
           style: 'destructive',
           onPress: () => {
             Alert.alert('Déconnecté', 'Vous avez été déconnecté avec succès');
-            router.push('/auth');
+            router.push('/(auth)/login');
           }
         }
       ]
@@ -66,7 +66,7 @@ export default function ProviderSettingsScreen() {
           style: 'destructive',
           onPress: () => {
             Alert.alert('Compte supprimé', 'Votre compte a été supprimé avec succès');
-            router.push('/auth');
+            router.push('/(auth)/login');
           }
         }
       ]

@@ -1,96 +1,150 @@
+// app/(tabs)/index.tsx (Updated with real data integration)
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Search, Shield, Star, MapPin, Clock, TriangleAlert as AlertTriangle, TrendingUp, Award, Zap } from 'lucide-react-native';
 import TrustBadge from '@/components/TrustBadge';
 import SafetyButton from '@/components/SafetyButton';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useTasks } from '@/hooks/useTasks';
+import { useServices } from '@/hooks/useServices';
+import { useCategories } from '@/hooks/useCategories';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useEffect, useState } from 'react';
 
 export default function HomeScreen() {
   const router = useRouter();
-
-  const categories = [
-    { id: 1, name: 'Nettoyage', icon: '🧹', color: '#4CAF50', tasks: 45, trending: true },
-    { id: 2, name: 'Réparation', icon: '🔧', color: '#FF9800', tasks: 67, trending: false },
-    { id: 3, name: 'Livraison', icon: '🚚', color: '#2196F3', tasks: 23, trending: true },
-    { id: 4, name: 'Tutorat', icon: '📚', color: '#9C27B0', tasks: 34, trending: false },
-    { id: 5, name: 'Jardinage', icon: '🌱', color: '#4CAF50', tasks: 19, trending: false },
-    { id: 6, name: 'Cuisine', icon: '👨‍🍳', color: '#FF5722', tasks: 28, trending: true },
-  ];
-
-  const featuredProviders = [
-    {
-      id: 1,
-      name: 'Kouadio Jean',
-      service: 'Plomberie',
-      rating: 4.8,
-      reviews: 45,
-      location: 'Cocody',
-      price: '15,000 FCFA',
-      verified: true,
-      trustScore: 92,
-      verificationLevel: 'enhanced',
-      responseTime: '15 min',
-      completedTasks: 156,
-      avatar: 'https://images.pexels.com/photos/1681010/pexels-photo-1681010.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop',
-      specialties: ['Urgences', 'Installation'],
-      available: true,
-      featured: true
-    },
-    {
-      id: 2,
-      name: 'Aminata Traoré',
-      service: 'Nettoyage',
-      rating: 4.9,
-      reviews: 67,
-      location: 'Plateau',
-      price: '12,000 FCFA',
-      verified: true,
-      trustScore: 95,
-      verificationLevel: 'community',
-      responseTime: '8 min',
-      completedTasks: 203,
-      avatar: 'https://images.pexels.com/photos/1681010/pexels-photo-1681010.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop',
-      specialties: ['Résidentiel', 'Commercial'],
-      available: true,
-      featured: true
-    },
-  ];
-
-  const urgentTasks = [
-    {
-      id: 1,
-      title: 'Réparation de fuite urgente',
-      location: 'Cocody',
-      budget: '25,000 FCFA',
-      timePosted: '5 min',
-      applicants: 3,
-      priority: 'high'
-    },
-    {
-      id: 2,
-      title: 'Livraison express documents',
-      location: 'Plateau',
-      budget: '8,000 FCFA',
-      timePosted: '12 min',
-      applicants: 7,
-      priority: 'medium'
-    }
-  ];
-
-  const platformStats = {
-    totalTasks: 1247,
+  const { profile } = useAuth();
+  const { categories } = useCategories();
+  const { unreadCount } = useNotifications();
+  const [recentTasks, setRecentTasks] = useState([]);
+  const [featuredProviders, setFeaturedProviders] = useState([]);
+  const [platformStats, setPlatformStats] = useState({
+    totalTasks: 0,
     activePlatform: '24/7',
     safetyScore: 98.5,
     averageResponse: '12 min',
-    verifiedProviders: 89,
+    verifiedProviders: 0,
     successRate: 96.8
-  };
+  });
+
+  // Fetch recent urgent tasks
+  const { tasks: urgentTasks, loading: tasksLoading } = useTasks({
+    status: 'posted',
+    urgency: 'high',
+    limit: 5
+  });
+
+  // Fetch featured services/providers
+  const { services: featuredServices, loading: servicesLoading } = useServices();
+
+  useEffect(() => {
+    // TODO: Fetch real platform statistics
+    // For now, we'll use the existing mock data structure
+    const fetchPlatformStats = async () => {
+      // This would typically come from a dashboard/analytics endpoint
+      setPlatformStats({
+        totalTasks: 1247,
+        activePlatform: '24/7',
+        safetyScore: 98.5,
+        averageResponse: '12 min',
+        verifiedProviders: 89,
+        successRate: 96.8
+      });
+    };
+
+    fetchPlatformStats();
+  }, []);
 
   const quickActions = [
     { id: 'emergency', title: 'Centre d\'urgence', icon: AlertTriangle, color: '#FF5722', route: '/emergency-center' },
     { id: 'advanced_search', title: 'Recherche avancée', icon: Search, color: '#2196F3', route: '/advanced-search' },
     { id: 'post_urgent', title: 'Tâche urgente', icon: Zap, color: '#FF9800', route: '/post-task' }
   ];
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Bonjour';
+    if (hour < 18) return 'Bon après-midi';
+    return 'Bonsoir';
+  };
+
+  const renderCategoryCard = (category: any, index: number) => (
+    <TouchableOpacity
+      key={category.id}
+      style={styles.categoryCard}
+      onPress={() => router.push(`/search?category=${category.id}`)}
+    >
+      <View style={styles.categoryHeader}>
+        <View style={[styles.categoryIcon, { backgroundColor: getCategoryColor(index) }]}>
+          <Text style={styles.categoryEmoji}>{category.icon || '🔧'}</Text>
+        </View>
+      </View>
+      <Text style={styles.categoryName}>{category.name_fr}</Text>
+      <Text style={styles.categoryTasks}>Active</Text>
+    </TouchableOpacity>
+  );
+
+  const getCategoryColor = (index: number) => {
+    const colors = ['#4CAF50', '#FF9800', '#2196F3', '#9C27B0', '#4CAF50', '#FF5722'];
+    return colors[index % colors.length];
+  };
+
+  const renderUrgentTask = (task: any) => (
+    <TouchableOpacity
+      key={task.id}
+      style={styles.urgentTaskCard}
+      onPress={() => router.push(`/task/${task.id}`)}
+    >
+      <View style={styles.urgentHeader}>
+        <Text style={styles.urgentTitle}>{task.title}</Text>
+        <View style={[
+          styles.urgentBadge,
+          { backgroundColor: task.urgency === 'emergency' ? '#FF5722' : '#FF9800' }
+        ]}>
+          <AlertTriangle size={12} color="#FFFFFF" />
+          <Text style={styles.urgentText}>
+            {task.urgency === 'emergency' ? 'URGENCE' : 'PRIORITÉ'}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.urgentMeta}>
+        <View style={styles.urgentMetaItem}>
+          <MapPin size={14} color="#666" />
+          <Text style={styles.urgentMetaText}>
+            {task.address?.city || 'Abidjan'}
+          </Text>
+        </View>
+        <View style={styles.urgentMetaItem}>
+          <Clock size={14} color="#666" />
+          <Text style={styles.urgentMetaText}>
+            Il y a {getTimeAgo(task.created_at)}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.urgentFooter}>
+        <Text style={styles.urgentBudget}>
+          {task.budget_min && task.budget_max
+            ? `${task.budget_min.toLocaleString()} - ${task.budget_max.toLocaleString()} FCFA`
+            : 'Budget à négocier'
+          }
+        </Text>
+        <Text style={styles.urgentApplicants}>
+          {task.applicant_count || 0} candidatures
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  const getTimeAgo = (dateString: string) => {
+    const now = new Date();
+    const created = new Date(dateString);
+    const diffInMinutes = Math.floor((now.getTime() - created.getTime()) / (1000 * 60));
+
+    if (diffInMinutes < 60) return `${diffInMinutes} min`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} h`;
+    return `${Math.floor(diffInMinutes / 1440)} j`;
+  };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -101,8 +155,17 @@ export default function HomeScreen() {
         <View style={styles.headerContent}>
           <View style={styles.headerTop}>
             <View>
-              <Text style={styles.greeting}>Bonjour!</Text>
+              <Text style={styles.greeting}>
+                {getGreeting()}{profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''}!
+              </Text>
               <Text style={styles.location}>📍 Abidjan, Côte d'Ivoire</Text>
+              {unreadCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationText}>
+                    {unreadCount} nouvelle{unreadCount > 1 ? 's' : ''} notification{unreadCount > 1 ? 's' : ''}
+                  </Text>
+                </View>
+              )}
             </View>
             <SafetyButton />
           </View>
@@ -155,155 +218,61 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Catégories populaires</Text>
-            <TouchableOpacity>
-              <TrendingUp size={20} color="#FF7A00" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.categoriesGrid}>
-            {categories.map((category) => (
-              <TouchableOpacity key={category.id} style={styles.categoryCard}>
-                <View style={styles.categoryHeader}>
-                  <View style={[styles.categoryIcon, { backgroundColor: category.color }]}>
-                    <Text style={styles.categoryEmoji}>{category.icon}</Text>
-                  </View>
-                  {category.trending && (
-                    <View style={styles.trendingBadge}>
-                      <TrendingUp size={10} color="#FFFFFF" />
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.categoryName}>{category.name}</Text>
-                <Text style={styles.categoryTasks}>{category.tasks} tâches</Text>
+        {categories.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Catégories populaires</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
+                <TrendingUp size={20} color="#FF7A00" />
               </TouchableOpacity>
-            ))}
+            </View>
+            <View style={styles.categoriesGrid}>
+              {categories.slice(0, 6).map((category, index) => renderCategoryCard(category, index))}
+            </View>
           </View>
-        </View>
+        )}
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Tâches urgentes</Text>
-            <TouchableOpacity>
-              <AlertTriangle size={20} color="#FF5722" />
-            </TouchableOpacity>
+        {urgentTasks.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Tâches urgentes</Text>
+              <TouchableOpacity onPress={() => router.push('/tasks?urgency=high')}>
+                <AlertTriangle size={20} color="#FF5722" />
+              </TouchableOpacity>
+            </View>
+            {urgentTasks.slice(0, 3).map(renderUrgentTask)}
           </View>
-          {urgentTasks.map((task) => (
-            <TouchableOpacity
-              key={task.id}
-              style={styles.urgentTaskCard}
-              onPress={() => router.push(`/task-status?taskId=${task.id}`)}
-            >
-              <View style={styles.urgentHeader}>
-                <Text style={styles.urgentTitle}>{task.title}</Text>
-                <View style={[
-                  styles.urgentBadge,
-                  { backgroundColor: task.priority === 'high' ? '#FF5722' : '#FF9800' }
-                ]}>
-                  <AlertTriangle size={12} color="#FFFFFF" />
-                  <Text style={styles.urgentText}>
-                    {task.priority === 'high' ? 'URGENT' : 'PRIORITÉ'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.urgentMeta}>
-                <View style={styles.urgentMetaItem}>
-                  <MapPin size={14} color="#666" />
-                  <Text style={styles.urgentMetaText}>{task.location}</Text>
-                </View>
-                <View style={styles.urgentMetaItem}>
-                  <Clock size={14} color="#666" />
-                  <Text style={styles.urgentMetaText}>Il y a {task.timePosted}</Text>
-                </View>
-              </View>
-              <View style={styles.urgentFooter}>
-                <Text style={styles.urgentBudget}>{task.budget}</Text>
-                <Text style={styles.urgentApplicants}>{task.applicants} candidatures</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+        )}
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Prestataires recommandés</Text>
-            <TouchableOpacity>
-              <Award size={20} color="#FFD700" />
-            </TouchableOpacity>
+        {profile?.role === 'client' && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Prestataires recommandés</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
+                <Award size={20} color="#FFD700" />
+              </TouchableOpacity>
+            </View>
+            {/* TODO: Implement provider recommendations based on user preferences */}
+            <Text style={styles.placeholderText}>
+              Prestataires recommandés basés sur vos préférences - En cours de développement
+            </Text>
           </View>
-          {featuredProviders.map((provider) => (
-            <TouchableOpacity
-              key={provider.id}
-              style={styles.providerCard}
-              onPress={() => router.push('/provider-profile')}
-            >
-              <View style={styles.providerHeader}>
-                <Image source={{ uri: provider.avatar }} style={styles.providerAvatar} />
-                <View style={styles.providerInfo}>
-                  <View style={styles.providerNameRow}>
-                    <Text style={styles.providerNameText}>{provider.name}</Text>
-                    <TrustBadge
-                      trustScore={provider.trustScore}
-                      verificationLevel={provider.verificationLevel as any}
-                      isVerified={provider.verified}
-                      size="small"
-                    />
-                  </View>
-                  <Text style={styles.providerService}>{provider.service}</Text>
-                  <View style={styles.providerMeta}>
-                    <View style={styles.rating}>
-                      <Star size={12} color="#FFD700" fill="#FFD700" />
-                      <Text style={styles.ratingText}>{provider.rating}</Text>
-                      <Text style={styles.reviewsText}>({provider.reviews})</Text>
-                    </View>
-                    <View style={styles.location}>
-                      <MapPin size={12} color="#666" />
-                      <Text style={styles.locationText}>{provider.location}</Text>
-                    </View>
-                  </View>
-                </View>
-                <View style={styles.providerPricing}>
-                  <Text style={styles.providerPrice}>{provider.price}</Text>
-                  <View style={styles.availabilityIndicator}>
-                    <View style={[
-                      styles.availabilityDot,
-                      { backgroundColor: provider.available ? '#4CAF50' : '#FF5722' }
-                    ]} />
-                    <Text style={styles.availabilityText}>
-                      {provider.available ? 'Disponible' : 'Occupé'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+        )}
 
-              <View style={styles.providerDetails}>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>Temps de réponse:</Text>
-                  <Text style={styles.detailValue}>{provider.responseTime}</Text>
-                </View>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>Tâches complétées:</Text>
-                  <Text style={styles.detailValue}>{provider.completedTasks}</Text>
-                </View>
-              </View>
-
-              <View style={styles.specialtiesContainer}>
-                {provider.specialties.map((specialty, index) => (
-                  <View key={index} style={styles.specialtyTag}>
-                    <Text style={styles.specialtyText}>{specialty}</Text>
-                  </View>
-                ))}
-                {provider.featured && (
-                  <View style={styles.featuredBadge}>
-                    <Award size={10} color="#FFD700" />
-                    <Text style={styles.featuredText}>Recommandé</Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {profile?.role === 'provider' && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Opportunités pour vous</Text>
+              <TouchableOpacity onPress={() => router.push('/opportunities')}>
+                <TrendingUp size={20} color="#4CAF50" />
+              </TouchableOpacity>
+            </View>
+            {/* TODO: Show relevant tasks based on provider skills */}
+            <Text style={styles.placeholderText}>
+              Tâches correspondant à vos compétences - En cours de développement
+            </Text>
+          </View>
+        )}
 
         <View style={styles.safetySection}>
           <View style={styles.safetyHeader}>
@@ -361,7 +330,7 @@ const styles = StyleSheet.create({
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 20,
   },
   greeting: {
@@ -375,6 +344,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     opacity: 0.9,
     marginTop: 4,
+  },
+  notificationBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 8,
+  },
+  notificationText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#FFFFFF',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -499,14 +480,6 @@ const styles = StyleSheet.create({
   categoryEmoji: {
     fontSize: 20,
   },
-  trendingBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#FF5722',
-    borderRadius: 8,
-    padding: 2,
-  },
   categoryName: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
@@ -589,152 +562,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
   },
-  providerCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  providerHeader: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  providerAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 12,
-  },
-  providerInfo: {
-    flex: 1,
-  },
-  providerNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  providerNameText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-    marginRight: 8,
-  },
-  providerService: {
+  placeholderText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: '#666',
-    marginBottom: 8,
-  },
-  providerMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  rating: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  ratingText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#333',
-    marginLeft: 4,
-  },
-  reviewsText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginLeft: 4,
-  },
-  location: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locationText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginLeft: 4,
-  },
-  providerPricing: {
-    alignItems: 'flex-end',
-  },
-  providerPrice: {
-    fontSize: 16,
-    fontFamily: 'Inter-Bold',
-    color: '#FF7A00',
-    marginBottom: 4,
-  },
-  availabilityIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  availabilityDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
-  },
-  availabilityText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-  },
-  providerDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-  },
-  detailItem: {
-    alignItems: 'center',
-  },
-  detailLabel: {
-    fontSize: 10,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-  },
-  detailValue: {
-    fontSize: 12,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-    marginTop: 2,
-  },
-  specialtiesContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  specialtyTag: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 8,
-  },
-  specialtyText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-  },
-  featuredBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFD700',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  featuredText: {
-    fontSize: 10,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-    marginLeft: 4,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingVertical: 20,
   },
   safetySection: {
     backgroundColor: '#E8F5E8',

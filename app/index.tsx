@@ -24,7 +24,7 @@ export default function WelcomeScreen() {
       } else {
         // Auto-navigate to auth after 3 seconds for new users
         const timer = setTimeout(() => {
-          router.push('/auth');
+          router.push('/(auth)/login');
         }, 3000);
 
         return () => clearTimeout(timer);
@@ -78,7 +78,7 @@ export default function WelcomeScreen() {
 
         <TouchableOpacity
           style={styles.getStartedButton}
-          onPress={() => router.push('/auth')}
+          onPress={() => router.push('/(auth)/login')}
         >
           <Text style={styles.getStartedText}>Commencer</Text>
           <ArrowRight size={20} color="#FF7A00" />

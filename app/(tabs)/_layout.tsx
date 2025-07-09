@@ -1,7 +1,12 @@
+// app/(tabs)/_layout.tsx (Updated with role-based access)
 import { Tabs } from 'expo-router';
 import { Chrome as Home, Search, MessageCircle, User, Plus, Shield } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import RoleBasedAccess from '@/components/RoleBasedAccess';
 
 export default function TabLayout() {
+  const { profile } = useAuth();
+
   return (
     <Tabs
       screenOptions={{
@@ -43,7 +48,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="post-task"
         options={{
-          title: 'Publier',
+          title: profile?.role === 'provider' ? 'Services' : 'Publier',
           tabBarIcon: ({ size, color }) => (
             <Plus size={size} color={color} />
           ),
@@ -74,6 +79,7 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <Shield size={size} color={color} />
           ),
+          href: profile?.role === 'admin' || profile?.role === 'moderator' ? '/admin' : null,
         }}
       />
     </Tabs>

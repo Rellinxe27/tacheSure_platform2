@@ -124,6 +124,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (authData.user) {
+        // Wait for trigger to complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         // Create profile
         const { error: profileError } = await supabase
           .from('profiles')
@@ -131,7 +134,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             id: authData.user.id,
             email,
             full_name: userData.full_name || null,
-            role: userData.role || 'client',
+            role: userData.role || null,
             phone: userData.phone || null,
             nationality: userData.nationality || 'Ivoirienne',
             languages: userData.languages || ['Français'],
@@ -140,6 +143,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             is_active: true,
             is_verified: false,
             preferences: {},
+            location: null,
+            address: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           });
@@ -158,6 +163,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setLoading(false);
     }
   };
+
 
   const signOut = async () => {
     setLoading(true);
@@ -214,3 +220,5 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     </AuthContext.Provider>
   );
 };
+
+export default AuthProvider;

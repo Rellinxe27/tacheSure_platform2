@@ -7,6 +7,8 @@ export default {
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
+    scheme: "tachesure",
+    newArchEnabled: true,
     splash: {
       image: "./assets/splash.png",
       resizeMode: "contain",
@@ -34,8 +36,10 @@ export default {
       supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
     },
     plugins: [
+      "expo-router",
       "expo-camera",
       "expo-location",
+      "expo-font"
     ]
   }
 };

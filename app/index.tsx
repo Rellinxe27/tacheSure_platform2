@@ -24,7 +24,7 @@ export default function WelcomeScreen() {
       } else {
         // Auto-navigate to auth after 3 seconds for new users
         const timer = setTimeout(() => {
-          router.push('/(auth)/login');
+          router.push('/auth/login');
         }, 3000);
 
         return () => clearTimeout(timer);

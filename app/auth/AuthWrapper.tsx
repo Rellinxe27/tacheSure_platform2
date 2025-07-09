@@ -1,9 +1,8 @@
 // app/auth/AuthWrapper.tsx
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useRouter, useSegments } from 'expo-router';
-import { useEffect } from 'react';
 
 interface AuthWrapperProps {
   children: React.ReactNode;
@@ -13,21 +12,32 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
   const { user, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const hasNavigated = useRef(false);
 
   useEffect(() => {
     if (loading) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
-    const inTabsGroup = segments[0] === '(tabs)';
+    const inAuthGroup = segments[0] === 'auth/login';
+    const isIndex = segments.length === 0 || segments[0] === 'index';
 
-    if (!user && !inAuthGroup) {
-      // User is not signed in and not in auth screens
-      router.replace('/(auth)/login');
-    } else if (user && inAuthGroup) {
-      // User is signed in but still in auth screens
+    // Prevent multiple navigation calls
+    if (hasNavigated.current) return;
+
+    if (!user && !inAuthGroup && !isIndex) {
+      hasNavigated.current = true;
+      router.replace('/auth/login');
+    } else if (user && (inAuthGroup || isIndex)) {
+      hasNavigated.current = true;
       router.replace('/(tabs)');
     }
-  }, [user, segments, loading]);
+
+    // Reset navigation flag after a delay
+    if (hasNavigated.current) {
+      setTimeout(() => {
+        hasNavigated.current = false;
+      }, 1000);
+    }
+  }, [user, loading]);
 
   if (loading) {
     return (

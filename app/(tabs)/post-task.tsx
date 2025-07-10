@@ -1,22 +1,28 @@
-// app/(tabs)/post-task.tsx (Updated for role-based functionality)
+// app/(tabs)/post-task.tsx (Fixed with proper data persistence)
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Switch } from 'react-native';
 import { Camera, MapPin, Calendar, DollarSign, Clock, Shield, Plus, Edit3 } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useTasks } from '@/hooks/useTasks';
 import { useCategories } from '@/hooks/useCategories';
+import { useServices } from '@/hooks/useServices';
+import { usePayments } from '@/hooks/usePayments';
+import { useReviews } from '@/hooks/useReviews';
 import { getCurrentLocation } from '@/utils/permissions';
 import * as Location from 'expo-location';
 import RoleBasedAccess from '@/components/RoleBasedAccess';
 import { formatCurrency } from '@/utils/formatting';
-import { useServices } from '@/hooks/useServices';
-import { usePayments } from '@/hooks/usePayments';
-import { useReviews } from '@/hooks/useReviews';
+import { useRouter } from 'expo-router';
 
 export default function PostTaskScreen() {
+  const router = useRouter();
   const { profile, user } = useAuth();
   const { createTask } = useTasks();
   const { categories, loading: loadingCategories } = useCategories();
+  const { services, loading: servicesLoading, updateService } = useServices(user?.id);
+  const { stats: paymentStats, loading: paymentsLoading } = usePayments();
+  const { stats: reviewStats, loading: reviewsLoading } = useReviews(user?.id);
+
   const [taskData, setTaskData] = useState({
     title: '',
     description: '',
@@ -31,9 +37,6 @@ export default function PostTaskScreen() {
   });
 
   const [gettingLocation, setGettingLocation] = useState(false);
-  const { services, loading: servicesLoading, updateService } = useServices(user?.id);
-  onst { stats: paymentStats, loading: paymentsLoading } = usePayments();
-  const { stats: reviewStats, loading: reviewsLoading } = useReviews(user?.id);
 
   const reverseGeocode = async (latitude: number, longitude: number) => {
     try {
@@ -162,64 +165,122 @@ export default function PostTaskScreen() {
     }
   };
 
-  // Show different content based on user role
-  if (profile?.role === 'provider') {
-    return (
-      {/* My Services */}
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Mes services</Text>
-        <TouchableOpacity onPress={() => router.push('/service-management')}>
-          <Plus size={20} color="#FF7A00" />
-        </TouchableOpacity>
+  const handleServiceToggle = async (serviceId: string, isActive: boolean) => {
+    const { error } = await updateService(serviceId, { is_active: isActive });
+    if (error) {
+      Alert.alert('Erreur', 'Impossible de mettre à jour le service');
+    } else {
+      Alert.alert('Succès', `Service ${isActive ? 'activé' : 'désactivé'} avec succès`);
+    }
+  };
+
+  // Provider Dashboard Component
+  const ProviderDashboard = () => (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Dashboard Prestataire</Text>
+        <Text style={styles.subtitle}>Gérez vos services et suivez vos performances</Text>
       </View>
 
-      {servicesLoading ? (
-        <Text style={styles.loadingText}>Chargement des services...</Text>
-      ) : services.length === 0 ? (
-        <View style={styles.emptyServices}>
-          <Text style={styles.emptyServicesText}>
-            Aucun service configuré
-          </Text>
-          <TouchableOpacity
-            style={styles.addServiceButton}
-            onPress={() => router.push('/service-management')}
-          >
-            <Text style={styles.addServiceText}>Ajouter un service</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        services.slice(0, 3).map((service) => (
-          <View key={service.id} style={styles.serviceCard}>
-            <View style={styles.serviceInfo}>
-              <Text style={styles.serviceName}>{service.name}</Text>
-              <Text style={styles.servicePrice}>
-                {formatCurrency(service.price_min)} - {formatCurrency(service.price_max)}
-              </Text>
-            </View>
-
-            <View style={styles.serviceControls}>
-              <TouchableOpacity
-                style={styles.editServiceButton}
-                onPress={() => router.push(`/edit-service?serviceId=${service.id}`)}
-              >
-                <Edit3 size={16} color="#666" />
-              </TouchableOpacity>
-              <Switch
-                value={service.is_active || false}
-                onValueChange={(value) => handleServiceToggle(service.id, value)}
-                trackColor={{ false: '#E0E0E0', true: '#4CAF50' }}
-                thumbColor={service.is_active ? '#FFFFFF' : '#F4F3F4'}
-              />
-            </View>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Performance Stats */}
+        <View style={styles.statsGrid}>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{reviewStats.averageRating || 0}</Text>
+            <Text style={styles.statLabel}>Note moyenne</Text>
           </View>
-        ))
-      )}
-    </View>
-    );
-  }
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{reviewStats.totalReviews || 0}</Text>
+            <Text style={styles.statLabel}>Avis reçus</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{formatCurrency(paymentStats.totalEarned || 0)}</Text>
+            <Text style={styles.statLabel}>Gains totaux</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statValue}>{services.filter(s => s.is_active).length}</Text>
+            <Text style={styles.statLabel}>Services actifs</Text>
+          </View>
+        </View>
 
-  return (
+        {/* My Services */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Mes services</Text>
+            <TouchableOpacity onPress={() => router.push('/service-management')}>
+              <Plus size={20} color="#FF7A00" />
+            </TouchableOpacity>
+          </View>
+
+          {servicesLoading ? (
+            <Text style={styles.loadingText}>Chargement des services...</Text>
+          ) : services.length === 0 ? (
+            <View style={styles.emptyServices}>
+              <Text style={styles.emptyServicesText}>
+                Aucun service configuré
+              </Text>
+              <TouchableOpacity
+                style={styles.addServiceButton}
+                onPress={() => router.push('/service-management')}
+              >
+                <Text style={styles.addServiceText}>Ajouter un service</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            services.slice(0, 3).map((service) => (
+              <View key={service.id} style={styles.serviceCard}>
+                <View style={styles.serviceInfo}>
+                  <Text style={styles.serviceName}>{service.name}</Text>
+                  <Text style={styles.servicePrice}>
+                    {formatCurrency(service.price_min)} - {formatCurrency(service.price_max)}
+                  </Text>
+                </View>
+
+                <View style={styles.serviceControls}>
+                  <TouchableOpacity
+                    style={styles.editServiceButton}
+                    onPress={() => router.push(`/edit-service?serviceId=${service.id}`)}
+                  >
+                    <Edit3 size={16} color="#666" />
+                  </TouchableOpacity>
+                  <Switch
+                    value={service.is_active || false}
+                    onValueChange={(value) => handleServiceToggle(service.id, value)}
+                    trackColor={{ false: '#E0E0E0', true: '#4CAF50' }}
+                    thumbColor={service.is_active ? '#FFFFFF' : '#F4F3F4'}
+                  />
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Quick Actions */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Actions rapides</Text>
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={styles.quickActionButton}
+              onPress={() => router.push('/service-management')}
+            >
+              <Plus size={20} color="#FF7A00" />
+              <Text style={styles.quickActionText}>Nouveau service</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickActionButton}
+              onPress={() => router.push('/provider-availability')}
+            >
+              <Calendar size={20} color="#FF7A00" />
+              <Text style={styles.quickActionText}>Disponibilités</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+
+  // Client Task Posting Component
+  const ClientTaskPosting = () => (
     <RoleBasedAccess allowedRoles={['client']} fallback={
       <View style={styles.container}>
         <Text>Accès non autorisé</Text>
@@ -393,6 +454,13 @@ export default function PostTaskScreen() {
       </View>
     </RoleBasedAccess>
   );
+
+  // Render based on user role
+  if (profile?.role === 'provider') {
+    return <ProviderDashboard />;
+  }
+
+  return <ClientTaskPosting />;
 }
 
 const styles = StyleSheet.create({
@@ -423,6 +491,12 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 16,
@@ -618,5 +692,127 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
+  },
+  // Provider Dashboard Styles
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    marginTop: 20,
+  },
+  statCard: {
+    width: '48%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statValue: {
+    fontSize: 20,
+    fontFamily: 'Inter-Bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    textAlign: 'center',
+  },
+  emptyServices: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  emptyServicesText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginBottom: 16,
+  },
+  addServiceButton: {
+    backgroundColor: '#FF7A00',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  addServiceText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+  },
+  serviceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  serviceInfo: {
+    flex: 1,
+  },
+  serviceName: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  servicePrice: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#FF7A00',
+  },
+  serviceControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editServiceButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  quickActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  quickActionText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#333',
+    marginLeft: 8,
   },
 });

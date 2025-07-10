@@ -337,14 +337,6 @@ export default function ProviderDashboardScreen() {
             <DollarSign size={24} color="#FFFFFF" />
             <Text style={styles.quickActionText}>Gains</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => router.push('/provider-settings')}
-          >
-            <Settings size={24} color="#FFFFFF" />
-            <Text style={styles.quickActionText}>Paramètres</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>

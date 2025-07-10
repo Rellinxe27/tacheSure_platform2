@@ -71,6 +71,9 @@ export default function ProfileScreen() {
       case 'verification':
         router.push('/verification');
         break;
+      case 'settings':
+        router.push('/provider-settings');
+        break;
       case 'logout':
         Alert.alert(
           'Déconnexion',

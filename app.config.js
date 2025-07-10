@@ -5,7 +5,7 @@ export default {
     slug: "tachesure",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/icon.png",
+    icon: "./assets/images/icon.png",
     userInterfaceStyle: "light",
     scheme: "tachesure",
     newArchEnabled: true,
@@ -23,7 +23,7 @@ export default {
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png",
+        foregroundImage: "./assets/images/adaptive-icon.png",
         backgroundColor: "#FF7A00"
       },
       package: "com.tachesure.app"

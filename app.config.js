@@ -39,7 +39,8 @@ export default {
       "expo-router",
       "expo-camera",
       "expo-location",
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ]
   }
 };

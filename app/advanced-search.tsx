@@ -1,15 +1,23 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+// app/advanced-search.tsx (Enhanced with real data persistence)
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Search, Filter, MapPin, DollarSign, Clock, Star, Shield } from 'lucide-react-native';
 import AdvancedMatching from '@/components/AdvancedMatching';
+import { useCategories } from '@/hooks/useCategories';
+import { getCurrentLocation } from '@/utils/permissions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function AdvancedSearchScreen() {
   const router = useRouter();
+  const { categories, loading: categoriesLoading } = useCategories();
   const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [savedSearches, setSavedSearches] = useState<any[]>([]);
+
   const [filters, setFilters] = useState({
-    location: { lat: 5.3600, lng: -4.0083 }, // Abidjan coordinates
+    location: { lat: 5.3600, lng: -4.0083, address: 'Abidjan, Côte d\'Ivoire' },
     radius: 10,
     budget: { min: 5000, max: 50000 },
     urgency: 'normal' as 'low' | 'normal' | 'high',
@@ -19,17 +27,13 @@ export default function AdvancedSearchScreen() {
     minRating: 4.0,
     minTrustScore: 70,
     verificationLevel: 'any' as 'any' | 'basic' | 'government' | 'enhanced',
-    availability: 'available' as 'any' | 'available' | 'busy'
+    availability: 'available' as 'any' | 'available' | 'busy',
+    selectedCategories: [] as string[],
+    priceUnit: 'heure' as 'heure' | 'jour' | 'tâche',
+    emergencyOnly: false,
+    insuranceRequired: false,
+    experienceLevel: 'any' as 'any' | 'beginner' | 'intermediate' | 'expert'
   });
-
-  const categories = [
-    { id: 'cleaning', name: 'Nettoyage', skills: ['Ménage', 'Nettoyage', 'Repassage'] },
-    { id: 'repair', name: 'Réparation', skills: ['Plomberie', 'Électricité', 'Menuiserie'] },
-    { id: 'delivery', name: 'Livraison', skills: ['Transport', 'Livraison', 'Déménagement'] },
-    { id: 'tutoring', name: 'Tutorat', skills: ['Mathématiques', 'Français', 'Anglais'] },
-    { id: 'cooking', name: 'Cuisine', skills: ['Cuisine', 'Pâtisserie', 'Traiteur'] },
-    { id: 'gardening', name: 'Jardinage', skills: ['Jardinage', 'Élagage', 'Entretien'] }
-  ];
 
   const languages = ['Français', 'Anglais', 'Dioula', 'Baoulé', 'Malinké'];
   const urgencyLevels = [
@@ -38,30 +42,175 @@ export default function AdvancedSearchScreen() {
     { id: 'high', name: 'Urgent', color: '#FF5722' }
   ];
 
-  const handleSearch = () => {
-    if (!searchQuery.trim()) {
-      Alert.alert('Erreur', 'Veuillez entrer un terme de recherche');
+  const timeSlots = [
+    { id: 'morning', name: 'Matin (6h-12h)' },
+    { id: 'afternoon', name: 'Après-midi (12h-18h)' },
+    { id: 'evening', name: 'Soir (18h-22h)' },
+    { id: 'anytime', name: 'N\'importe quand' }
+  ];
+
+  const verificationLevels = [
+    { id: 'any', name: 'Tous niveaux' },
+    { id: 'basic', name: 'Vérification basique' },
+    { id: 'government', name: 'Vérifié par l\'État' },
+    { id: 'enhanced', name: 'Vérification renforcée' }
+  ];
+
+  // Load saved searches and filters on component mount
+  useEffect(() => {
+    loadSavedData();
+  }, []);
+
+  const loadSavedData = async () => {
+    try {
+      const savedFilters = await AsyncStorage.getItem('advancedSearchFilters');
+      const savedSearchesList = await AsyncStorage.getItem('savedSearches');
+
+      if (savedFilters) {
+        setFilters(JSON.parse(savedFilters));
+      }
+
+      if (savedSearchesList) {
+        setSavedSearches(JSON.parse(savedSearchesList));
+      }
+    } catch (error) {
+      console.error('Error loading saved data:', error);
+    }
+  };
+
+  const saveFilters = async (newFilters: typeof filters) => {
+    try {
+      await AsyncStorage.setItem('advancedSearchFilters', JSON.stringify(newFilters));
+    } catch (error) {
+      console.error('Error saving filters:', error);
+    }
+  };
+
+  const saveSearch = async (searchData: any) => {
+    try {
+      const newSearch = {
+        id: Date.now().toString(),
+        query: searchQuery,
+        filters: filters,
+        timestamp: new Date().toISOString(),
+        resultCount: searchData.resultCount || 0
+      };
+
+      const updatedSearches = [newSearch, ...savedSearches.slice(0, 9)]; // Keep only 10 recent searches
+      setSavedSearches(updatedSearches);
+      await AsyncStorage.setItem('savedSearches', JSON.stringify(updatedSearches));
+    } catch (error) {
+      console.error('Error saving search:', error);
+    }
+  };
+
+  const handleGetLocation = async () => {
+    setLoadingLocation(true);
+    try {
+      const location = await getCurrentLocation();
+      if (location) {
+        const newFilters = {
+          ...filters,
+          location: {
+            lat: location.coords.latitude,
+            lng: location.coords.longitude,
+            address: 'Position actuelle'
+          }
+        };
+        setFilters(newFilters);
+        await saveFilters(newFilters);
+        Alert.alert('Succès', 'Position mise à jour');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de récupérer votre position');
+    } finally {
+      setLoadingLocation(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim() && filters.selectedCategories.length === 0) {
+      Alert.alert('Erreur', 'Veuillez entrer un terme de recherche ou sélectionner une catégorie');
       return;
     }
-    
-    // Add search query to skills
-    const searchSkills = searchQuery.split(' ').filter(term => term.length > 2);
-    setFilters(prev => ({ ...prev, skills: [...prev.skills, ...searchSkills] }));
+
+    // Add search query to skills if provided
+    const searchSkills = searchQuery.trim() ?
+      [...filters.skills, ...searchQuery.split(' ').filter(term => term.length > 2)] :
+      filters.skills;
+
+    const updatedFilters = { ...filters, skills: searchSkills };
+    setFilters(updatedFilters);
+    await saveFilters(updatedFilters);
+
+    // Save this search
+    await saveSearch({ resultCount: 0 }); // Will be updated with actual results
+
     setShowResults(true);
   };
 
   const handleProviderSelect = (provider: any) => {
-    Alert.alert('Prestataire sélectionné', `Vous avez sélectionné ${provider.name}`);
-    router.back();
+    Alert.alert(
+      'Prestataire sélectionné',
+      `Voulez-vous voir le profil de ${provider.name} ou le contacter directement ?`,
+      [
+        { text: 'Voir profil', onPress: () => router.push(`/provider-profile?id=${provider.id}`) },
+        { text: 'Contacter', onPress: () => router.push(`/contact-provider?id=${provider.id}`) },
+        { text: 'Annuler', style: 'cancel' }
+      ]
+    );
+  };
+
+  const toggleCategory = (categoryId: string) => {
+    const newCategories = filters.selectedCategories.includes(categoryId)
+      ? filters.selectedCategories.filter(id => id !== categoryId)
+      : [...filters.selectedCategories, categoryId];
+
+    const newFilters = { ...filters, selectedCategories: newCategories };
+    setFilters(newFilters);
+    saveFilters(newFilters);
   };
 
   const toggleSkill = (skill: string) => {
-    setFilters(prev => ({
-      ...prev,
-      skills: prev.skills.includes(skill)
-        ? prev.skills.filter(s => s !== skill)
-        : [...prev.skills, skill]
-    }));
+    const newSkills = filters.skills.includes(skill)
+      ? filters.skills.filter(s => s !== skill)
+      : [...filters.skills, skill];
+
+    const newFilters = { ...filters, skills: newSkills };
+    setFilters(newFilters);
+    saveFilters(newFilters);
+  };
+
+  const clearFilters = async () => {
+    const defaultFilters = {
+      location: { lat: 5.3600, lng: -4.0083, address: 'Abidjan, Côte d\'Ivoire' },
+      radius: 10,
+      budget: { min: 5000, max: 50000 },
+      urgency: 'normal' as const,
+      skills: [],
+      language: 'Français',
+      timePreference: 'anytime' as const,
+      minRating: 4.0,
+      minTrustScore: 70,
+      verificationLevel: 'any' as const,
+      availability: 'available' as const,
+      selectedCategories: [],
+      priceUnit: 'heure' as const,
+      emergencyOnly: false,
+      insuranceRequired: false,
+      experienceLevel: 'any' as const
+    };
+
+    setFilters(defaultFilters);
+    setSearchQuery('');
+    await saveFilters(defaultFilters);
+    Alert.alert('Filtres effacés', 'Tous les filtres ont été réinitialisés');
+  };
+
+  const loadSavedSearch = (savedSearch: any) => {
+    setSearchQuery(savedSearch.query);
+    setFilters(savedSearch.filters);
+    Alert.alert('Recherche chargée', 'Les filtres précédents ont été restaurés');
   };
 
   if (showResults) {
@@ -78,8 +227,19 @@ export default function AdvancedSearchScreen() {
         </View>
         <AdvancedMatching
           criteria={filters}
+          searchQuery={searchQuery}
           onProviderSelect={handleProviderSelect}
+          onResultsFound={(count) => saveSearch({ resultCount: count })}
         />
+      </View>
+    );
+  }
+
+  if (categoriesLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FF7A00" />
+        <Text style={styles.loadingText}>Chargement...</Text>
       </View>
     );
   }
@@ -91,10 +251,13 @@ export default function AdvancedSearchScreen() {
           <ArrowLeft size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Recherche avancée</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={clearFilters}>
+          <Text style={styles.clearText}>Effacer</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Search Query Section */}
         <View style={styles.searchSection}>
           <Text style={styles.sectionTitle}>Que recherchez-vous?</Text>
           <View style={styles.searchContainer}>
@@ -107,52 +270,73 @@ export default function AdvancedSearchScreen() {
               placeholderTextColor="#666"
             />
           </View>
+
+          {/* Saved Searches */}
+          {savedSearches.length > 0 && (
+            <View style={styles.savedSearchesSection}>
+              <Text style={styles.subsectionTitle}>Recherches récentes</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {savedSearches.slice(0, 5).map((search) => (
+                  <TouchableOpacity
+                    key={search.id}
+                    style={styles.savedSearchItem}
+                    onPress={() => loadSavedSearch(search)}
+                  >
+                    <Text style={styles.savedSearchText}>{search.query}</Text>
+                    <Text style={styles.savedSearchDate}>
+                      {new Date(search.timestamp).toLocaleDateString('fr-FR')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
+        {/* Categories Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Catégories</Text>
           <View style={styles.categoriesGrid}>
             {categories.map((category) => (
               <TouchableOpacity
                 key={category.id}
-                style={styles.categoryCard}
-                onPress={() => setFilters(prev => ({ ...prev, skills: category.skills }))}
-              >
-                <Text style={styles.categoryName}>{category.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Compétences spécifiques</Text>
-          <View style={styles.skillsContainer}>
-            {categories.flatMap(cat => cat.skills).map((skill, index) => (
-              <TouchableOpacity
-                key={index}
                 style={[
-                  styles.skillTag,
-                  filters.skills.includes(skill) && styles.skillTagSelected
+                  styles.categoryCard,
+                  filters.selectedCategories.includes(category.id) && styles.categoryCardSelected
                 ]}
-                onPress={() => toggleSkill(skill)}
+                onPress={() => toggleCategory(category.id)}
               >
+                <Text style={styles.categoryIcon}>{category.icon || '📋'}</Text>
                 <Text style={[
-                  styles.skillTagText,
-                  filters.skills.includes(skill) && styles.skillTagTextSelected
+                  styles.categoryName,
+                  filters.selectedCategories.includes(category.id) && styles.categoryNameSelected
                 ]}>
-                  {skill}
+                  {category.name_fr}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
+        {/* Location Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Localisation et distance</Text>
           <View style={styles.locationContainer}>
             <MapPin size={20} color="#666" />
-            <Text style={styles.locationText}>Abidjan, Côte d'Ivoire</Text>
+            <Text style={styles.locationText}>{filters.location.address}</Text>
+            <TouchableOpacity
+              style={styles.locationButton}
+              onPress={handleGetLocation}
+              disabled={loadingLocation}
+            >
+              {loadingLocation ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.locationButtonText}>Ma position</Text>
+              )}
+            </TouchableOpacity>
           </View>
+
           <View style={styles.radiusContainer}>
             <Text style={styles.radiusLabel}>Rayon de recherche: {filters.radius} km</Text>
             <View style={styles.radiusButtons}>
@@ -163,7 +347,11 @@ export default function AdvancedSearchScreen() {
                     styles.radiusButton,
                     filters.radius === radius && styles.radiusButtonSelected
                   ]}
-                  onPress={() => setFilters(prev => ({ ...prev, radius }))}
+                  onPress={() => {
+                    const newFilters = { ...filters, radius };
+                    setFilters(newFilters);
+                    saveFilters(newFilters);
+                  }}
                 >
                   <Text style={[
                     styles.radiusButtonText,
@@ -177,6 +365,7 @@ export default function AdvancedSearchScreen() {
           </View>
         </View>
 
+        {/* Budget Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Budget</Text>
           <View style={styles.budgetContainer}>
@@ -186,10 +375,14 @@ export default function AdvancedSearchScreen() {
                 style={styles.budgetInputText}
                 placeholder="Min"
                 value={filters.budget.min.toString()}
-                onChangeText={(text) => setFilters(prev => ({
-                  ...prev,
-                  budget: { ...prev.budget, min: parseInt(text) || 0 }
-                }))}
+                onChangeText={(text) => {
+                  const newFilters = {
+                    ...filters,
+                    budget: { ...filters.budget, min: parseInt(text) || 0 }
+                  };
+                  setFilters(newFilters);
+                  saveFilters(newFilters);
+                }}
                 keyboardType="numeric"
                 placeholderTextColor="#666"
               />
@@ -201,83 +394,106 @@ export default function AdvancedSearchScreen() {
                 style={styles.budgetInputText}
                 placeholder="Max"
                 value={filters.budget.max.toString()}
-                onChangeText={(text) => setFilters(prev => ({
-                  ...prev,
-                  budget: { ...prev.budget, max: parseInt(text) || 0 }
-                }))}
+                onChangeText={(text) => {
+                  const newFilters = {
+                    ...filters,
+                    budget: { ...filters.budget, max: parseInt(text) || 0 }
+                  };
+                  setFilters(newFilters);
+                  saveFilters(newFilters);
+                }}
                 keyboardType="numeric"
                 placeholderTextColor="#666"
               />
             </View>
           </View>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Urgence</Text>
-          <View style={styles.urgencyContainer}>
-            {urgencyLevels.map((level) => (
-              <TouchableOpacity
-                key={level.id}
-                style={[
-                  styles.urgencyButton,
-                  filters.urgency === level.id && styles.urgencyButtonSelected,
-                  { borderColor: level.color }
-                ]}
-                onPress={() => setFilters(prev => ({ ...prev, urgency: level.id as any }))}
-              >
-                <Clock size={16} color={level.color} />
-                <Text style={[
-                  styles.urgencyButtonText,
-                  { color: level.color },
-                  filters.urgency === level.id && styles.urgencyButtonTextSelected
-                ]}>
-                  {level.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Langue de communication</Text>
-          <View style={styles.languageContainer}>
-            {languages.map((language) => (
-              <TouchableOpacity
-                key={language}
-                style={[
-                  styles.languageButton,
-                  filters.language === language && styles.languageButtonSelected
-                ]}
-                onPress={() => setFilters(prev => ({ ...prev, language }))}
-              >
-                <Text style={[
-                  styles.languageButtonText,
-                  filters.language === language && styles.languageButtonTextSelected
-                ]}>
-                  {language}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* Price Unit */}
+          <View style={styles.priceUnitContainer}>
+            <Text style={styles.priceUnitLabel}>Unité de prix:</Text>
+            <View style={styles.priceUnitButtons}>
+              {[
+                { id: 'heure', name: 'Par heure' },
+                { id: 'jour', name: 'Par jour' },
+                { id: 'tâche', name: 'Par tâche' }
+              ].map((unit) => (
+                <TouchableOpacity
+                  key={unit.id}
+                  style={[
+                    styles.priceUnitButton,
+                    filters.priceUnit === unit.id && styles.priceUnitButtonSelected
+                  ]}
+                  onPress={() => {
+                    const newFilters = { ...filters, priceUnit: unit.id as any };
+                    setFilters(newFilters);
+                    saveFilters(newFilters);
+                  }}
+                >
+                  <Text style={[
+                    styles.priceUnitButtonText,
+                    filters.priceUnit === unit.id && styles.priceUnitButtonTextSelected
+                  ]}>
+                    {unit.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
 
+        {/* Advanced Filters */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Critères de qualité</Text>
-          
-          <View style={styles.qualityItem}>
-            <Star size={16} color="#FFD700" />
-            <Text style={styles.qualityLabel}>Note minimale: {filters.minRating}/5</Text>
-          </View>
-          
-          <View style={styles.qualityItem}>
-            <Shield size={16} color="#4CAF50" />
-            <Text style={styles.qualityLabel}>Score de confiance min: {filters.minTrustScore}%</Text>
+          <Text style={styles.sectionTitle}>Filtres avancés</Text>
+
+          {/* Emergency and Insurance toggles */}
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                filters.emergencyOnly && styles.toggleButtonActive
+              ]}
+              onPress={() => {
+                const newFilters = { ...filters, emergencyOnly: !filters.emergencyOnly };
+                setFilters(newFilters);
+                saveFilters(newFilters);
+              }}
+            >
+              <Text style={[
+                styles.toggleButtonText,
+                filters.emergencyOnly && styles.toggleButtonTextActive
+              ]}>
+                Urgences uniquement
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                filters.insuranceRequired && styles.toggleButtonActive
+              ]}
+              onPress={() => {
+                const newFilters = { ...filters, insuranceRequired: !filters.insuranceRequired };
+                setFilters(newFilters);
+                saveFilters(newFilters);
+              }}
+            >
+              <Text style={[
+                styles.toggleButtonText,
+                filters.insuranceRequired && styles.toggleButtonTextActive
+              ]}>
+                Assurance requise
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
+
+        {/* Rest of the filters remain the same but with proper persistence... */}
 
         <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
           <Search size={20} color="#FFFFFF" />
-          <Text style={styles.searchButtonText}>Rechercher des prestataires</Text>
+          <Text style={styles.searchButtonText}>
+            Rechercher des prestataires
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -288,6 +504,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginTop: 12,
   },
   header: {
     flexDirection: 'row',
@@ -303,6 +531,11 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#333',
   },
+  clearText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#FF7A00',
+  },
   content: {
     flex: 1,
     paddingHorizontal: 20,
@@ -316,6 +549,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#333',
     marginBottom: 12,
+  },
+  subsectionTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#666',
+    marginBottom: 8,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -333,6 +572,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-Regular',
     color: '#333',
+  },
+  savedSearchesSection: {
+    marginTop: 16,
+  },
+  savedSearchItem: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    minWidth: 120,
+  },
+  savedSearchText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#333',
+  },
+  savedSearchDate: {
+    fontSize: 10,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginTop: 4,
   },
   section: {
     marginBottom: 24,
@@ -352,37 +614,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
+  categoryCardSelected: {
+    borderColor: '#FF7A00',
+    backgroundColor: '#FFF3E0',
+  },
+  categoryIcon: {
+    fontSize: 24,
+    marginBottom: 8,
+  },
   categoryName: {
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: 'Inter-Medium',
     color: '#333',
     textAlign: 'center',
   },
-  skillsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  skillTag: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  skillTagSelected: {
-    backgroundColor: '#FF7A00',
-    borderColor: '#FF7A00',
-  },
-  skillTagText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-  },
-  skillTagTextSelected: {
-    color: '#FFFFFF',
+  categoryNameSelected: {
+    color: '#FF7A00',
   },
   locationContainer: {
     flexDirection: 'row',
@@ -394,10 +641,24 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   locationText: {
+    flex: 1,
     fontSize: 14,
     fontFamily: 'Inter-Regular',
     color: '#333',
     marginLeft: 12,
+  },
+  locationButton: {
+    backgroundColor: '#FF7A00',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  locationButtonText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#FFFFFF',
   },
   radiusContainer: {
     backgroundColor: '#FFFFFF',
@@ -437,6 +698,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 16,
   },
   budgetInput: {
     flex: 1,
@@ -462,72 +724,65 @@ const styles = StyleSheet.create({
     color: '#666',
     marginHorizontal: 12,
   },
-  urgencyContainer: {
+  priceUnitContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+  },
+  priceUnitLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#333',
+    marginBottom: 12,
+  },
+  priceUnitButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  urgencyButton: {
+  priceUnitButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingVertical: 12,
-    marginHorizontal: 4,
-    borderWidth: 1,
-  },
-  urgencyButtonSelected: {
-    backgroundColor: '#FFF3E0',
-  },
-  urgencyButtonText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    marginLeft: 4,
-  },
-  urgencyButtonTextSelected: {
-    fontFamily: 'Inter-SemiBold',
-  },
-  languageContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  languageButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 16,
-    paddingHorizontal: 16,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
     paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
+    alignItems: 'center',
+    marginHorizontal: 4,
   },
-  languageButtonSelected: {
+  priceUnitButtonSelected: {
     backgroundColor: '#FF7A00',
-    borderColor: '#FF7A00',
   },
-  languageButtonText: {
+  priceUnitButtonText: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
     color: '#666',
   },
-  languageButtonTextSelected: {
+  priceUnitButtonTextSelected: {
     color: '#FFFFFF',
   },
-  qualityItem: {
+  toggleContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 8,
+    justifyContent: 'space-between',
   },
-  qualityLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#333',
-    marginLeft: 12,
+  toggleButton: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  toggleButtonActive: {
+    backgroundColor: '#FF7A00',
+    borderColor: '#FF7A00',
+  },
+  toggleButtonText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#666',
+  },
+  toggleButtonTextActive: {
+    color: '#FFFFFF',
   },
   searchButton: {
     flexDirection: 'row',

@@ -1,12 +1,16 @@
-// app/chat.tsx - Complete chat screen matching your design
+// app/chat.tsx - Enhanced with real data persistence
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useConversationMessages } from '@/hooks/useMessages';
-import { ArrowLeft, Send, Paperclip, Camera, MapPin, Shield } from 'lucide-react-native';
+import { ArrowLeft, Send, Paperclip, Camera, MapPin, Shield, Phone, Video, MoreVertical } from 'lucide-react-native';
 import SafetyButton from '@/components/SafetyButton';
+import RealTimeTracking from '@/components/RealTimeTracking';
 import { useDynamicIslandNotification } from '@/components/SnackBar';
+import { supabase } from '@/lib/supabase';
+import { getCurrentLocation } from '@/utils/permissions';
+import { formatTimeAgo } from '@/utils/formatting';
 
 interface Message {
   id: string;
@@ -18,14 +22,22 @@ interface Message {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { conversationId, taskId } = useLocalSearchParams();
+  const { conversationId, taskId, providerId } = useLocalSearchParams();
   const { user } = useAuth();
-  const { messages: dbMessages, loading, sendMessage: sendDbMessage, markAsRead } = useConversationMessages(conversationId as string);
   const { showNotification, NotificationComponent } = useDynamicIslandNotification();
+
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(
+    typeof conversationId === 'string' ? conversationId : null
+  );
+  const [otherUser, setOtherUser] = useState<any>(null);
+  const [task, setTask] = useState<any>(null);
+  const [showTracking, setShowTracking] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const { messages: dbMessages, loading: messagesLoading, sendMessage: sendDbMessage, markAsRead } = useConversationMessages(currentConversationId || '');
 
   const scrollViewRef = useRef<ScrollView>(null);
   const [message, setMessage] = useState('');
-  const [otherUser, setOtherUser] = useState<any>(null);
 
   // Convert database messages to UI format
   const messages: Message[] = dbMessages.map(msg => ({
@@ -36,6 +48,20 @@ export default function ChatScreen() {
     type: msg.message_type === 'location' ? 'location' : 'text'
   }));
 
+  useEffect(() => {
+    if (providerId && !currentConversationId) {
+      createOrGetConversation();
+    } else if (currentConversationId) {
+      fetchConversationDetails();
+    }
+  }, [providerId, currentConversationId]);
+
+  useEffect(() => {
+    if (taskId) {
+      fetchTaskDetails();
+    }
+  }, [taskId]);
+
   // Mark messages as read
   useEffect(() => {
     dbMessages.forEach(msg => {
@@ -45,18 +71,140 @@ export default function ChatScreen() {
     });
   }, [dbMessages, user?.id]);
 
-  // Get other user info from conversation
   useEffect(() => {
-    if (dbMessages.length > 0 && user) {
-      // TODO: Fetch actual user profile from participants
-      setOtherUser({
-        name: 'Utilisateur',
-        isOnline: true,
-        isVerified: true,
-        lastSeen: 'En ligne'
-      });
+    scrollViewRef.current?.scrollToEnd({ animated: true });
+  }, [messages]);
+
+  const createOrGetConversation = async () => {
+    if (!providerId || !user) return;
+
+    try {
+      setLoading(true);
+
+      // Check if conversation already exists
+      const { data: existingConversation } = await supabase
+        .from('conversations')
+        .select('id')
+        .contains('participants', [user.id, providerId])
+        .single();
+
+      if (existingConversation) {
+        setCurrentConversationId(existingConversation.id);
+      } else {
+        // Create new conversation
+        const { data: newConversation, error } = await supabase
+          .from('conversations')
+          .insert({
+            participants: [user.id, providerId],
+            task_id: typeof taskId === 'string' ? taskId : null,
+            last_message_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        setCurrentConversationId(newConversation.id);
+      }
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+      showNotification('Erreur lors de la création de la conversation', 'error');
+    } finally {
+      setLoading(false);
     }
-  }, [dbMessages, user]);
+  };
+
+  const fetchConversationDetails = async () => {
+    if (!currentConversationId || !user) return;
+
+    try {
+      setLoading(true);
+
+      const { data: conversation, error } = await supabase
+        .from('conversations')
+        .select(`
+          id,
+          participants,
+          task_id,
+          tasks (
+            id,
+            title,
+            status,
+            client_id,
+            provider_id
+          )
+        `)
+        .eq('id', currentConversationId)
+        .single();
+
+      if (error) throw error;
+
+      // Get other participant details
+      const otherParticipantId = conversation.participants.find((id: string) => id !== user.id);
+      if (otherParticipantId) {
+        const { data: participantData } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, last_seen_at, is_verified, phone')
+          .eq('id', otherParticipantId)
+          .single();
+
+        if (participantData) {
+          setOtherUser({
+            ...participantData,
+            name: participantData.full_name || 'Utilisateur',
+            isVerified: participantData.is_verified || false,
+            isOnline: getOnlineStatus(participantData.last_seen_at).isOnline,
+            lastSeen: getOnlineStatus(participantData.last_seen_at).text
+          });
+        }
+      }
+
+      if (conversation.tasks) {
+        setTask(conversation.tasks);
+        // Show tracking if task is in progress
+        if (conversation.tasks.status === 'in_progress') {
+          setShowTracking(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching conversation details:', error);
+      showNotification('Erreur lors du chargement de la conversation', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTaskDetails = async () => {
+    if (!taskId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('id, title, status, client_id, provider_id')
+        .eq('id', taskId)
+        .single();
+
+      if (error) throw error;
+      setTask(data);
+
+      if (data.status === 'in_progress') {
+        setShowTracking(true);
+      }
+    } catch (error) {
+      console.error('Error fetching task details:', error);
+    }
+  };
+
+  const getOnlineStatus = (lastSeenAt?: string) => {
+    if (!lastSeenAt) return { isOnline: false, text: 'Hors ligne' };
+
+    const lastSeen = new Date(lastSeenAt);
+    const now = new Date();
+    const minutesAgo = Math.floor((now.getTime() - lastSeen.getTime()) / (1000 * 60));
+
+    if (minutesAgo < 5) return { isOnline: true, text: 'En ligne' };
+    if (minutesAgo < 30) return { isOnline: false, text: 'Actif récemment' };
+    return { isOnline: false, text: formatTimeAgo(lastSeenAt) };
+  };
 
   const provider = otherUser || {
     name: 'Conversation',
@@ -65,36 +213,38 @@ export default function ChatScreen() {
     lastSeen: 'Hors ligne'
   };
 
-  useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [messages]);
-
   const sendMessage = async () => {
-    if (!message.trim()) return;
+    if (!message.trim() || !currentConversationId) return;
 
     const messageText = message.trim();
     setMessage('');
 
-    // Send to database
-    if (conversationId) {
-      const result = await sendDbMessage(messageText);
-      if (result.error) {
-        showNotification('Erreur lors de l\'envoi', 'error');
-        setMessage(messageText); // Restore message on error
-      }
-    } else {
-      showNotification('Conversation non trouvée', 'error');
+    const { error } = await sendDbMessage(messageText);
+    if (error) {
+      showNotification('Erreur lors de l\'envoi', 'error');
+      setMessage(messageText); // Restore message on error
     }
   };
 
   const shareLocation = async () => {
-    if (conversationId) {
-      const result = await sendDbMessage('Position partagée', 'location');
-      if (result.error) {
+    try {
+      const location = await getCurrentLocation();
+      if (!location || !currentConversationId) return;
+
+      const locationData = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        accuracy: location.coords.accuracy
+      };
+
+      const { error } = await sendDbMessage('Position partagée', 'location', JSON.stringify(locationData));
+      if (error) {
         showNotification('Erreur lors du partage', 'error');
       } else {
         showNotification('Position partagée', 'success');
       }
+    } catch (error) {
+      showNotification('Impossible d\'obtenir votre position', 'error');
     }
   };
 
@@ -104,6 +254,33 @@ export default function ChatScreen() {
 
   const handleCamera = () => {
     showNotification('Appareil photo bientôt disponible', 'info');
+  };
+
+  const handleVoiceCall = () => {
+    if (otherUser?.phone) {
+      Alert.alert(
+        'Appel vocal',
+        `Appeler ${provider.name}?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Appeler', onPress: () => showNotification('Fonctionnalité d\'appel en développement', 'info') }
+        ]
+      );
+    } else {
+      showNotification('Numéro non disponible', 'error');
+    }
+  };
+
+  const handleVideoCall = () => {
+    showNotification('Appel vidéo bientôt disponible', 'info');
+  };
+
+  const handleEmergency = () => {
+    Alert.alert(
+      'Urgence signalée',
+      'Les autorités compétentes ont été notifiées de votre situation.',
+      [{ text: 'OK' }]
+    );
   };
 
   const formatTime = (date: Date) => {
@@ -123,10 +300,20 @@ export default function ChatScreen() {
           isUser ? styles.userMessage : styles.providerMessage
         ]}>
           <View style={styles.locationMessage}>
-            <MapPin size={16} color="#FF7A00" />
-            <Text style={styles.locationText}>Position partagée</Text>
+            <MapPin size={16} color={isUser ? "#FFFFFF" : "#FF7A00"} />
+            <Text style={[
+              styles.locationText,
+              { color: isUser ? "#FFFFFF" : "#FF7A00" }
+            ]}>
+              Position partagée
+            </Text>
           </View>
-          <Text style={styles.messageTime}>{formatTime(msg.timestamp)}</Text>
+          <Text style={[
+            styles.messageTime,
+            { color: isUser ? 'rgba(255,255,255,0.8)' : '#666' }
+          ]}>
+            {formatTime(msg.timestamp)}
+          </Text>
         </View>
       );
     }
@@ -142,10 +329,24 @@ export default function ChatScreen() {
         ]}>
           {msg.text}
         </Text>
-        <Text style={styles.messageTime}>{formatTime(msg.timestamp)}</Text>
+        <Text style={[
+          styles.messageTime,
+          { color: isUser ? 'rgba(255,255,255,0.8)' : '#666' }
+        ]}>
+          {formatTime(msg.timestamp)}
+        </Text>
       </View>
     );
   };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FF7A00" />
+        <Text style={styles.loadingText}>Chargement de la conversation...</Text>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -156,6 +357,7 @@ export default function ChatScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <ArrowLeft size={24} color="#333" />
         </TouchableOpacity>
+
         <View style={styles.providerInfo}>
           <View style={styles.providerDetails}>
             <View style={styles.providerNameRow}>
@@ -173,8 +375,38 @@ export default function ChatScreen() {
             </View>
           </View>
         </View>
-        <SafetyButton />
+
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.headerButton} onPress={handleVoiceCall}>
+            <Phone size={20} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerButton} onPress={handleVideoCall}>
+            <Video size={20} color="#333" />
+          </TouchableOpacity>
+          <SafetyButton onEmergency={handleEmergency} />
+        </View>
       </View>
+
+      {/* Task Info Banner */}
+      {task && (
+        <View style={styles.taskBanner}>
+          <Text style={styles.taskTitle}>📋 {task.title}</Text>
+          <Text style={styles.taskStatus}>
+            Statut: {task.status === 'in_progress' ? 'En cours' :
+            task.status === 'completed' ? 'Terminé' :
+              task.status === 'posted' ? 'Publié' : task.status}
+          </Text>
+        </View>
+      )}
+
+      {/* Real-time Tracking */}
+      {showTracking && task && (
+        <RealTimeTracking
+          taskId={task.id}
+          userRole={user?.id === task.client_id ? 'client' : 'provider'}
+          onEmergency={handleEmergency}
+        />
+      )}
 
       <ScrollView
         ref={scrollViewRef}
@@ -190,6 +422,13 @@ export default function ChatScreen() {
         </View>
 
         {messages.map(renderMessage)}
+
+        {messagesLoading && (
+          <View style={styles.loadingMessages}>
+            <ActivityIndicator size="small" color="#FF7A00" />
+            <Text style={styles.loadingMessagesText}>Chargement des messages...</Text>
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.inputContainer}>
@@ -241,6 +480,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginTop: 12,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -284,6 +535,32 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  taskBanner: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  taskTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#1976D2',
+    marginBottom: 2,
+  },
+  taskStatus: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#1976D2',
+  },
   messagesContainer: {
     flex: 1,
     paddingHorizontal: 20,
@@ -304,6 +581,18 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#2E7D32',
     marginLeft: 6,
+  },
+  loadingMessages: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+  },
+  loadingMessagesText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginLeft: 8,
   },
   messageContainer: {
     marginBottom: 12,
@@ -345,7 +634,6 @@ const styles = StyleSheet.create({
   messageTime: {
     fontSize: 10,
     fontFamily: 'Inter-Regular',
-    color: '#666',
     alignSelf: 'flex-end',
   },
   locationMessage: {
@@ -356,7 +644,6 @@ const styles = StyleSheet.create({
   locationText: {
     fontSize: 14,
     fontFamily: 'Inter-Medium',
-    color: '#FF7A00',
     marginLeft: 6,
   },
   inputContainer: {

@@ -1,4 +1,4 @@
-// app/advanced-search.tsx (Enhanced with real data persistence)
+// app/advanced-search.tsx (Updated with fixed defaults and removed search requirement)
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -19,15 +19,15 @@ export default function AdvancedSearchScreen() {
   const [filters, setFilters] = useState({
     location: { lat: 5.3600, lng: -4.0083, address: 'Abidjan, Côte d\'Ivoire' },
     radius: 10,
-    budget: { min: 5000, max: 50000 },
+    budget: { min: 1000, max: 100000 }, // More inclusive range
     urgency: 'normal' as 'low' | 'normal' | 'high',
     skills: [] as string[],
     language: 'Français',
     timePreference: 'anytime' as 'morning' | 'afternoon' | 'evening' | 'anytime',
-    minRating: 4.0,
-    minTrustScore: 70,
+    minRating: 0, // Accept all ratings
+    minTrustScore: 0, // Accept all trust scores
     verificationLevel: 'any' as 'any' | 'basic' | 'government' | 'enhanced',
-    availability: 'available' as 'any' | 'available' | 'busy',
+    availability: 'any' as 'any' | 'available' | 'busy', // Accept all availability
     selectedCategories: [] as string[],
     priceUnit: 'heure' as 'heure' | 'jour' | 'tâche',
     emergencyOnly: false,
@@ -36,18 +36,6 @@ export default function AdvancedSearchScreen() {
   });
 
   const languages = ['Français', 'Anglais', 'Dioula', 'Baoulé', 'Malinké'];
-  const urgencyLevels = [
-    { id: 'low', name: 'Pas urgent', color: '#4CAF50' },
-    { id: 'normal', name: 'Normal', color: '#FF9800' },
-    { id: 'high', name: 'Urgent', color: '#FF5722' }
-  ];
-
-  const timeSlots = [
-    { id: 'morning', name: 'Matin (6h-12h)' },
-    { id: 'afternoon', name: 'Après-midi (12h-18h)' },
-    { id: 'evening', name: 'Soir (18h-22h)' },
-    { id: 'anytime', name: 'N\'importe quand' }
-  ];
 
   const verificationLevels = [
     { id: 'any', name: 'Tous niveaux' },
@@ -56,7 +44,19 @@ export default function AdvancedSearchScreen() {
     { id: 'enhanced', name: 'Vérification renforcée' }
   ];
 
-  // Load saved searches and filters on component mount
+  const availabilityOptions = [
+    { id: 'any', name: 'Tous' },
+    { id: 'available', name: 'Disponible' },
+    { id: 'busy', name: 'Occupé' }
+  ];
+
+  const experienceLevels = [
+    { id: 'any', name: 'Tous niveaux' },
+    { id: 'beginner', name: 'Débutant' },
+    { id: 'intermediate', name: 'Intermédiaire' },
+    { id: 'expert', name: 'Expert' }
+  ];
+
   useEffect(() => {
     loadSavedData();
   }, []);
@@ -96,7 +96,7 @@ export default function AdvancedSearchScreen() {
         resultCount: searchData.resultCount || 0
       };
 
-      const updatedSearches = [newSearch, ...savedSearches.slice(0, 9)]; // Keep only 10 recent searches
+      const updatedSearches = [newSearch, ...savedSearches.slice(0, 9)];
       setSavedSearches(updatedSearches);
       await AsyncStorage.setItem('savedSearches', JSON.stringify(updatedSearches));
     } catch (error) {
@@ -129,11 +129,7 @@ export default function AdvancedSearchScreen() {
   };
 
   const handleSearch = async () => {
-    if (!searchQuery.trim() && filters.selectedCategories.length === 0) {
-      Alert.alert('Erreur', 'Veuillez entrer un terme de recherche ou sélectionner une catégorie');
-      return;
-    }
-
+    // Remove the requirement for search query or categories
     // Add search query to skills if provided
     const searchSkills = searchQuery.trim() ?
       [...filters.skills, ...searchQuery.split(' ').filter(term => term.length > 2)] :
@@ -144,7 +140,7 @@ export default function AdvancedSearchScreen() {
     await saveFilters(updatedFilters);
 
     // Save this search
-    await saveSearch({ resultCount: 0 }); // Will be updated with actual results
+    await saveSearch({ resultCount: 0 });
 
     setShowResults(true);
   };
@@ -152,7 +148,7 @@ export default function AdvancedSearchScreen() {
   const handleProviderSelect = (provider: any) => {
     Alert.alert(
       'Prestataire sélectionné',
-      `Voulez-vous voir le profil de ${provider.name} ou le contacter directement ?`,
+      `Voulez-vous voir le profil de ${provider.full_name} ou le contacter directement ?`,
       [
         { text: 'Voir profil', onPress: () => router.push(`/provider-profile?id=${provider.id}`) },
         { text: 'Contacter', onPress: () => router.push(`/contact-provider?id=${provider.id}`) },
@@ -171,29 +167,19 @@ export default function AdvancedSearchScreen() {
     saveFilters(newFilters);
   };
 
-  const toggleSkill = (skill: string) => {
-    const newSkills = filters.skills.includes(skill)
-      ? filters.skills.filter(s => s !== skill)
-      : [...filters.skills, skill];
-
-    const newFilters = { ...filters, skills: newSkills };
-    setFilters(newFilters);
-    saveFilters(newFilters);
-  };
-
   const clearFilters = async () => {
     const defaultFilters = {
       location: { lat: 5.3600, lng: -4.0083, address: 'Abidjan, Côte d\'Ivoire' },
       radius: 10,
-      budget: { min: 5000, max: 50000 },
+      budget: { min: 1000, max: 100000 },
       urgency: 'normal' as const,
       skills: [],
       language: 'Français',
       timePreference: 'anytime' as const,
-      minRating: 4.0,
-      minTrustScore: 70,
+      minRating: 0,
+      minTrustScore: 0,
       verificationLevel: 'any' as const,
-      availability: 'available' as const,
+      availability: 'any' as const,
       selectedCategories: [],
       priceUnit: 'heure' as const,
       emergencyOnly: false,
@@ -271,7 +257,6 @@ export default function AdvancedSearchScreen() {
             />
           </View>
 
-          {/* Saved Searches */}
           {savedSearches.length > 0 && (
             <View style={styles.savedSearchesSection}>
               <Text style={styles.subsectionTitle}>Recherches récentes</Text>
@@ -407,33 +392,90 @@ export default function AdvancedSearchScreen() {
               />
             </View>
           </View>
+        </View>
 
-          {/* Price Unit */}
-          <View style={styles.priceUnitContainer}>
-            <Text style={styles.priceUnitLabel}>Unité de prix:</Text>
-            <View style={styles.priceUnitButtons}>
-              {[
-                { id: 'heure', name: 'Par heure' },
-                { id: 'jour', name: 'Par jour' },
-                { id: 'tâche', name: 'Par tâche' }
-              ].map((unit) => (
+        {/* Language Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Langue</Text>
+          <View style={styles.languageContainer}>
+            {languages.map((language) => (
+              <TouchableOpacity
+                key={language}
+                style={[
+                  styles.languageButton,
+                  filters.language === language && styles.languageButtonSelected
+                ]}
+                onPress={() => {
+                  const newFilters = { ...filters, language };
+                  setFilters(newFilters);
+                  saveFilters(newFilters);
+                }}
+              >
+                <Text style={[
+                  styles.languageButtonText,
+                  filters.language === language && styles.languageButtonTextSelected
+                ]}>
+                  {language}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Rating & Trust Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Note et confiance</Text>
+
+          <View style={styles.ratingContainer}>
+            <Text style={styles.ratingLabel}>Note minimum: {filters.minRating === 0 ? 'Tous' : filters.minRating}/5</Text>
+            <View style={styles.ratingButtons}>
+              {[0, 3, 4, 4.5, 5].map((rating) => (
                 <TouchableOpacity
-                  key={unit.id}
+                  key={rating}
                   style={[
-                    styles.priceUnitButton,
-                    filters.priceUnit === unit.id && styles.priceUnitButtonSelected
+                    styles.ratingButton,
+                    filters.minRating === rating && styles.ratingButtonSelected
                   ]}
                   onPress={() => {
-                    const newFilters = { ...filters, priceUnit: unit.id as any };
+                    const newFilters = { ...filters, minRating: rating };
+                    setFilters(newFilters);
+                    saveFilters(newFilters);
+                  }}
+                >
+                  <Star size={16} color={filters.minRating === rating ? "#FFFFFF" : "#FFD700"}
+                        fill={rating > 0 ? "#FFD700" : "none"} />
+                  <Text style={[
+                    styles.ratingButtonText,
+                    filters.minRating === rating && styles.ratingButtonTextSelected
+                  ]}>
+                    {rating === 0 ? 'Tous' : rating}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.trustContainer}>
+            <Text style={styles.trustLabel}>Score de confiance min: {filters.minTrustScore === 0 ? 'Tous' : filters.minTrustScore + '%'}</Text>
+            <View style={styles.trustButtons}>
+              {[0, 50, 70, 85, 95].map((score) => (
+                <TouchableOpacity
+                  key={score}
+                  style={[
+                    styles.trustButton,
+                    filters.minTrustScore === score && styles.trustButtonSelected
+                  ]}
+                  onPress={() => {
+                    const newFilters = { ...filters, minTrustScore: score };
                     setFilters(newFilters);
                     saveFilters(newFilters);
                   }}
                 >
                   <Text style={[
-                    styles.priceUnitButtonText,
-                    filters.priceUnit === unit.id && styles.priceUnitButtonTextSelected
+                    styles.trustButtonText,
+                    filters.minTrustScore === score && styles.trustButtonTextSelected
                   ]}>
-                    {unit.name}
+                    {score === 0 ? 'Tous' : `${score}%`}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -441,53 +483,62 @@ export default function AdvancedSearchScreen() {
           </View>
         </View>
 
-        {/* Advanced Filters */}
+        {/* Verification Level */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Filtres avancés</Text>
-
-          {/* Emergency and Insurance toggles */}
-          <View style={styles.toggleContainer}>
-            <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                filters.emergencyOnly && styles.toggleButtonActive
-              ]}
-              onPress={() => {
-                const newFilters = { ...filters, emergencyOnly: !filters.emergencyOnly };
-                setFilters(newFilters);
-                saveFilters(newFilters);
-              }}
-            >
-              <Text style={[
-                styles.toggleButtonText,
-                filters.emergencyOnly && styles.toggleButtonTextActive
-              ]}>
-                Urgences uniquement
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                filters.insuranceRequired && styles.toggleButtonActive
-              ]}
-              onPress={() => {
-                const newFilters = { ...filters, insuranceRequired: !filters.insuranceRequired };
-                setFilters(newFilters);
-                saveFilters(newFilters);
-              }}
-            >
-              <Text style={[
-                styles.toggleButtonText,
-                filters.insuranceRequired && styles.toggleButtonTextActive
-              ]}>
-                Assurance requise
-              </Text>
-            </TouchableOpacity>
+          <Text style={styles.sectionTitle}>Niveau de vérification</Text>
+          <View style={styles.verificationContainer}>
+            {verificationLevels.map((level) => (
+              <TouchableOpacity
+                key={level.id}
+                style={[
+                  styles.verificationButton,
+                  filters.verificationLevel === level.id && styles.verificationButtonSelected
+                ]}
+                onPress={() => {
+                  const newFilters = { ...filters, verificationLevel: level.id as any };
+                  setFilters(newFilters);
+                  saveFilters(newFilters);
+                }}
+              >
+                <Shield size={16} color={filters.verificationLevel === level.id ? "#FFFFFF" : "#4CAF50"} />
+                <Text style={[
+                  styles.verificationButtonText,
+                  filters.verificationLevel === level.id && styles.verificationButtonTextSelected
+                ]}>
+                  {level.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
-        {/* Rest of the filters remain the same but with proper persistence... */}
+        {/* Availability Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Disponibilité</Text>
+          <View style={styles.availabilityContainer}>
+            {availabilityOptions.map((option) => (
+              <TouchableOpacity
+                key={option.id}
+                style={[
+                  styles.availabilityButton,
+                  filters.availability === option.id && styles.availabilityButtonSelected
+                ]}
+                onPress={() => {
+                  const newFilters = { ...filters, availability: option.id as any };
+                  setFilters(newFilters);
+                  saveFilters(newFilters);
+                }}
+              >
+                <Text style={[
+                  styles.availabilityButtonText,
+                  filters.availability === option.id && styles.availabilityButtonTextSelected
+                ]}>
+                  {option.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
         <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
           <Search size={20} color="#FFFFFF" />
@@ -500,303 +551,75 @@ export default function AdvancedSearchScreen() {
   );
 }
 
+// Styles remain the same as before...
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-  },
-  loadingText: {
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginTop: 12,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-    backgroundColor: '#FFFFFF',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-  },
-  clearText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#FF7A00',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  searchSection: {
-    marginTop: 20,
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  subsectionTitle: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-    marginBottom: 8,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 12,
-    fontSize: 16,
-    fontFamily: 'Inter-Regular',
-    color: '#333',
-  },
-  savedSearchesSection: {
-    marginTop: 16,
-  },
-  savedSearchItem: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    padding: 12,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    minWidth: 120,
-  },
-  savedSearchText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#333',
-  },
-  savedSearchDate: {
-    fontSize: 10,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginTop: 4,
-  },
-  section: {
-    marginBottom: 24,
-  },
-  categoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  categoryCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  categoryCardSelected: {
-    borderColor: '#FF7A00',
-    backgroundColor: '#FFF3E0',
-  },
-  categoryIcon: {
-    fontSize: 24,
-    marginBottom: 8,
-  },
-  categoryName: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#333',
-    textAlign: 'center',
-  },
-  categoryNameSelected: {
-    color: '#FF7A00',
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 12,
-  },
-  locationText: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#333',
-    marginLeft: 12,
-  },
-  locationButton: {
-    backgroundColor: '#FF7A00',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  locationButtonText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#FFFFFF',
-  },
-  radiusContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-  },
-  radiusLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#333',
-    marginBottom: 12,
-  },
-  radiusButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  radiusButton: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  radiusButtonSelected: {
-    backgroundColor: '#FF7A00',
-  },
-  radiusButtonText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-  },
-  radiusButtonTextSelected: {
-    color: '#FFFFFF',
-  },
-  budgetContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  budgetInput: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  budgetInputText: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#333',
-  },
-  budgetSeparator: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginHorizontal: 12,
-  },
-  priceUnitContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-  },
-  priceUnitLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#333',
-    marginBottom: 12,
-  },
-  priceUnitButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  priceUnitButton: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    paddingVertical: 8,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  priceUnitButtonSelected: {
-    backgroundColor: '#FF7A00',
-  },
-  priceUnitButtonText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-  },
-  priceUnitButtonTextSelected: {
-    color: '#FFFFFF',
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  toggleButton: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginHorizontal: 4,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  toggleButtonActive: {
-    backgroundColor: '#FF7A00',
-    borderColor: '#FF7A00',
-  },
-  toggleButtonText: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-  },
-  toggleButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  searchButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FF7A00',
-    borderRadius: 12,
-    paddingVertical: 16,
-    marginBottom: 40,
-  },
-  searchButtonText: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-    marginLeft: 8,
-  },
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' },
+  loadingText: { fontSize: 16, fontFamily: 'Inter-Regular', color: '#666', marginTop: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20, backgroundColor: '#FFFFFF' },
+  headerTitle: { fontSize: 18, fontFamily: 'Inter-SemiBold', color: '#333' },
+  clearText: { fontSize: 14, fontFamily: 'Inter-Medium', color: '#FF7A00' },
+  content: { flex: 1, paddingHorizontal: 20 },
+  searchSection: { marginTop: 20, marginBottom: 24 },
+  sectionTitle: { fontSize: 16, fontFamily: 'Inter-SemiBold', color: '#333', marginBottom: 12 },
+  subsectionTitle: { fontSize: 14, fontFamily: 'Inter-Medium', color: '#666', marginBottom: 8 },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: '#E0E0E0' },
+  searchInput: { flex: 1, marginLeft: 12, fontSize: 16, fontFamily: 'Inter-Regular', color: '#333' },
+  savedSearchesSection: { marginTop: 16 },
+  savedSearchItem: { backgroundColor: '#FFFFFF', borderRadius: 8, padding: 12, marginRight: 12, borderWidth: 1, borderColor: '#E0E0E0', minWidth: 120 },
+  savedSearchText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#333' },
+  savedSearchDate: { fontSize: 10, fontFamily: 'Inter-Regular', color: '#666', marginTop: 4 },
+  section: { marginBottom: 24 },
+  categoriesGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  categoryCard: { width: '48%', backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0' },
+  categoryCardSelected: { borderColor: '#FF7A00', backgroundColor: '#FFF3E0' },
+  categoryIcon: { fontSize: 24, marginBottom: 8 },
+  categoryName: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#333', textAlign: 'center' },
+  categoryNameSelected: { color: '#FF7A00' },
+  locationContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 12 },
+  locationText: { flex: 1, fontSize: 14, fontFamily: 'Inter-Regular', color: '#333', marginLeft: 12 },
+  locationButton: { backgroundColor: '#FF7A00', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, minWidth: 80, alignItems: 'center' },
+  locationButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#FFFFFF' },
+  radiusContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
+  radiusLabel: { fontSize: 14, fontFamily: 'Inter-Medium', color: '#333', marginBottom: 12 },
+  radiusButtons: { flexDirection: 'row', justifyContent: 'space-between' },
+  radiusButton: { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 8, paddingVertical: 8, alignItems: 'center', marginHorizontal: 4 },
+  radiusButtonSelected: { backgroundColor: '#FF7A00' },
+  radiusButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#666' },
+  radiusButtonTextSelected: { color: '#FFFFFF' },
+  budgetContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  budgetInput: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: '#E0E0E0' },
+  budgetInputText: { flex: 1, marginLeft: 8, fontSize: 14, fontFamily: 'Inter-Regular', color: '#333' },
+  budgetSeparator: { fontSize: 14, fontFamily: 'Inter-Regular', color: '#666', marginHorizontal: 12 },
+  languageContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  languageButton: { backgroundColor: '#FFFFFF', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12, borderWidth: 1, borderColor: '#E0E0E0' },
+  languageButtonSelected: { backgroundColor: '#FF7A00', borderColor: '#FF7A00' },
+  languageButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#666' },
+  languageButtonTextSelected: { color: '#FFFFFF' },
+  ratingContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 12 },
+  ratingLabel: { fontSize: 14, fontFamily: 'Inter-Medium', color: '#333', marginBottom: 12 },
+  ratingButtons: { flexDirection: 'row', justifyContent: 'space-between' },
+  ratingButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F5F5', borderRadius: 8, paddingVertical: 8, marginHorizontal: 2 },
+  ratingButtonSelected: { backgroundColor: '#FF7A00' },
+  ratingButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#666', marginLeft: 4 },
+  ratingButtonTextSelected: { color: '#FFFFFF' },
+  trustContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
+  trustLabel: { fontSize: 14, fontFamily: 'Inter-Medium', color: '#333', marginBottom: 12 },
+  trustButtons: { flexDirection: 'row', justifyContent: 'space-between' },
+  trustButton: { flex: 1, backgroundColor: '#F5F5F5', borderRadius: 8, paddingVertical: 8, alignItems: 'center', marginHorizontal: 2 },
+  trustButtonSelected: { backgroundColor: '#4CAF50' },
+  trustButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#666' },
+  trustButtonTextSelected: { color: '#FFFFFF' },
+  verificationContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16 },
+  verificationButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 8, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 8 },
+  verificationButtonSelected: { backgroundColor: '#4CAF50' },
+  verificationButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#666', marginLeft: 8 },
+  verificationButtonTextSelected: { color: '#FFFFFF' },
+  availabilityContainer: { flexDirection: 'row', justifyContent: 'space-between' },
+  availabilityButton: { flex: 1, backgroundColor: '#FFFFFF', borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginHorizontal: 4, borderWidth: 1, borderColor: '#E0E0E0' },
+  availabilityButtonSelected: { backgroundColor: '#FF7A00', borderColor: '#FF7A00' },
+  availabilityButtonText: { fontSize: 12, fontFamily: 'Inter-Medium', color: '#666' },
+  availabilityButtonTextSelected: { color: '#FFFFFF' },
+  searchButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FF7A00', borderRadius: 12, paddingVertical: 16, marginBottom: 40 },
+  searchButtonText: { fontSize: 16, fontFamily: 'Inter-SemiBold', color: '#FFFFFF', marginLeft: 8 },
 });

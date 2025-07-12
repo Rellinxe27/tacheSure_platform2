@@ -1,11 +1,12 @@
-// app/(tabs)/_layout.tsx (Updated with role-based access)
+// app/(tabs)/_layout.tsx - Updated with role-based access
 import { Tabs } from 'expo-router';
-import { Chrome as Home, Search, MessageCircle, User, Plus, Shield } from 'lucide-react-native';
+import { Chrome as Home, Search, MessageCircle, User, Plus, Shield, Calendar, Briefcase } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
-import RoleBasedAccess from '@/components/RoleBasedAccess';
 
 export default function TabLayout() {
   const { profile } = useAuth();
+  const isProvider = profile?.role === 'provider';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'moderator';
 
   return (
     <Tabs
@@ -36,6 +37,8 @@ export default function TabLayout() {
           ),
         }}
       />
+
+      {/* Search tab - Only for clients and admins */}
       <Tabs.Screen
         name="search"
         options={{
@@ -43,17 +46,35 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <Search size={size} color={color} />
           ),
+          href: isProvider ? null : '/search',
         }}
       />
+
+      {/* Calendar tab - Only for providers */}
+      {isProvider && (
+        <Tabs.Screen
+          name="calendar"
+          options={{
+            title: 'Planning',
+            tabBarIcon: ({ size, color }) => (
+              <Calendar size={size} color={color} />
+            ),
+            href: '/availability-calendar',
+          }}
+        />
+      )}
+
       <Tabs.Screen
         name="post-task"
         options={{
-          title: profile?.role === 'provider' ? 'Services' : 'Publier',
+          title: isProvider ? 'Services' : 'Publier',
           tabBarIcon: ({ size, color }) => (
-            <Plus size={size} color={color} />
+            isProvider ? <Briefcase size={size} color={color} /> : <Plus size={size} color={color} />
           ),
+          href: isProvider ? '/service-management' : '/post-task',
         }}
       />
+
       <Tabs.Screen
         name="messages"
         options={{
@@ -63,6 +84,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
@@ -72,16 +94,19 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="admin"
-        options={{
-          title: 'Admin',
-          tabBarIcon: ({ size, color }) => (
-            <Shield size={size} color={color} />
-          ),
-          href: profile?.role === 'admin' || profile?.role === 'moderator' ? '/admin' : null,
-        }}
-      />
+
+      {/* Admin tab - Only for admins */}
+      {isAdmin && (
+        <Tabs.Screen
+          name="admin"
+          options={{
+            title: 'Admin',
+            tabBarIcon: ({ size, color }) => (
+              <Shield size={size} color={color} />
+            ),
+          }}
+        />
+      )}
     </Tabs>
   );
 }

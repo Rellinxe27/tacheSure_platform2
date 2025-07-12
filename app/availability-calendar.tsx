@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Calendar, Clock, Plus, Edit3, Trash2, MapPin } from 'lucide-react-native';
+import { ArrowLeft, Calendar, Clock, Plus, Edit3 } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface TimeSlot {
   id: string;
@@ -21,10 +23,14 @@ interface DaySchedule {
 
 export default function AvailabilityCalendarScreen() {
   const router = useRouter();
+  const { profile } = useAuth();
   const [selectedWeek, setSelectedWeek] = useState(0);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [weekSchedule, setWeekSchedule] = useState<DaySchedule[]>([]);
 
-  // Generate mock schedule for the week
+  useEffect(() => {
+    loadSchedule();
+  }, [selectedWeek]);
+
   const generateWeekSchedule = (weekOffset: number): DaySchedule[] => {
     const today = new Date();
     const startOfWeek = new Date(today);
@@ -54,20 +60,36 @@ export default function AvailabilityCalendarScreen() {
     return schedule;
   };
 
-  const [weekSchedule, setWeekSchedule] = useState<DaySchedule[]>(generateWeekSchedule(0));
+  const loadSchedule = async () => {
+    try {
+      const savedSchedule = await AsyncStorage.getItem(`schedule_${profile?.id}_week_${selectedWeek}`);
+      if (savedSchedule) {
+        setWeekSchedule(JSON.parse(savedSchedule));
+      } else {
+        const defaultSchedule = generateWeekSchedule(selectedWeek);
+        setWeekSchedule(defaultSchedule);
+        await saveSchedule(defaultSchedule);
+      }
+    } catch (error) {
+      console.error('Error loading schedule:', error);
+      setWeekSchedule(generateWeekSchedule(selectedWeek));
+    }
+  };
+
+  const saveSchedule = async (schedule: DaySchedule[]) => {
+    try {
+      await AsyncStorage.setItem(`schedule_${profile?.id}_week_${selectedWeek}`, JSON.stringify(schedule));
+    } catch (error) {
+      console.error('Error saving schedule:', error);
+    }
+  };
 
   const handlePreviousWeek = () => {
-    const newWeekOffset = selectedWeek - 1;
-    setSelectedWeek(newWeekOffset);
-    setWeekSchedule(generateWeekSchedule(newWeekOffset));
-    setSelectedDay(null);
+    setSelectedWeek(selectedWeek - 1);
   };
 
   const handleNextWeek = () => {
-    const newWeekOffset = selectedWeek + 1;
-    setSelectedWeek(newWeekOffset);
-    setWeekSchedule(generateWeekSchedule(newWeekOffset));
-    setSelectedDay(null);
+    setSelectedWeek(selectedWeek + 1);
   };
 
   const handleTimeSlotPress = (dayDate: string, timeSlot: TimeSlot) => {
@@ -95,8 +117,8 @@ export default function AvailabilityCalendarScreen() {
     }
   };
 
-  const toggleTimeSlotAvailability = (dayDate: string, timeSlotId: string) => {
-    setWeekSchedule(prev => prev.map(day => {
+  const toggleTimeSlotAvailability = async (dayDate: string, timeSlotId: string) => {
+    const newSchedule = weekSchedule.map(day => {
       if (day.date === dayDate) {
         return {
           ...day,
@@ -108,17 +130,44 @@ export default function AvailabilityCalendarScreen() {
         };
       }
       return day;
-    }));
+    });
+
+    setWeekSchedule(newSchedule);
+    await saveSchedule(newSchedule);
     Alert.alert('Disponibilité mise à jour', 'Vos créneaux ont été mis à jour');
   };
 
-  const handleAddTimeSlot = (dayDate: string) => {
+  const handleAddTimeSlot = async (dayDate: string) => {
     Alert.alert(
       'Ajouter un créneau',
       'Sélectionnez les heures de début et de fin',
       [
         { text: 'Annuler', style: 'cancel' },
-        { text: 'Ajouter', onPress: () => Alert.alert('Créneau ajouté', 'Le nouveau créneau a été ajouté') }
+        {
+          text: 'Ajouter',
+          onPress: async () => {
+            const newTimeSlot: TimeSlot = {
+              id: Date.now().toString(),
+              start: '09:00',
+              end: '11:00',
+              available: true
+            };
+
+            const newSchedule = weekSchedule.map(day => {
+              if (day.date === dayDate) {
+                return {
+                  ...day,
+                  timeSlots: [...day.timeSlots, newTimeSlot]
+                };
+              }
+              return day;
+            });
+
+            setWeekSchedule(newSchedule);
+            await saveSchedule(newSchedule);
+            Alert.alert('Créneau ajouté', 'Le nouveau créneau a été ajouté');
+          }
+        }
       ]
     );
   };

@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Bell, Shield, MapPin, Clock, DollarSign, User, Phone, Mail, Lock, HelpCircle, LogOut } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProviderSettingsScreen() {
   const router = useRouter();
+  const { profile, signOut } = useAuth();
   const [settings, setSettings] = useState({
     notifications: {
       newRequests: true,
@@ -27,14 +30,40 @@ export default function ProviderSettingsScreen() {
     }
   });
 
-  const handleToggleSetting = (category: keyof typeof settings, setting: string) => {
-    setSettings(prev => ({
-      ...prev,
-      [category]: {
-        ...prev[category],
-        [setting]: !prev[category][setting as keyof typeof prev[category]]
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    try {
+      const savedSettings = await AsyncStorage.getItem(`settings_${profile?.id}`);
+      if (savedSettings) {
+        setSettings(JSON.parse(savedSettings));
       }
-    }));
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    }
+  };
+
+  const saveSettings = async (newSettings: typeof settings) => {
+    try {
+      await AsyncStorage.setItem(`settings_${profile?.id}`, JSON.stringify(newSettings));
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    }
+  };
+
+  const handleToggleSetting = async (category: keyof typeof settings, setting: string) => {
+    const newSettings = {
+      ...settings,
+      [category]: {
+        ...settings[category],
+        [setting]: !settings[category][setting as keyof typeof settings[category]]
+      }
+    };
+
+    setSettings(newSettings);
+    await saveSettings(newSettings);
   };
 
   const handleLogout = () => {
@@ -46,9 +75,9 @@ export default function ProviderSettingsScreen() {
         {
           text: 'Déconnexion',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            await signOut();
             Alert.alert('Déconnecté', 'Vous avez été déconnecté avec succès');
-            router.push('/(auth)/login');
           }
         }
       ]
@@ -66,7 +95,7 @@ export default function ProviderSettingsScreen() {
           style: 'destructive',
           onPress: () => {
             Alert.alert('Compte supprimé', 'Votre compte a été supprimé avec succès');
-            router.push('/(auth)/login');
+            router.push('/auth/login');
           }
         }
       ]
@@ -77,26 +106,25 @@ export default function ProviderSettingsScreen() {
     {
       section: 'Compte',
       items: [
-        { id: 'profile', title: 'Informations personnelles', icon: User, route: '/edit-profile' },
-        { id: 'contact', title: 'Contact et adresse', icon: MapPin, route: '/edit-contact' },
+        { id: 'profile', title: 'Informations personnelles', icon: User, route: '/personal-info' },
         { id: 'verification', title: 'Vérification d\'identité', icon: Shield, route: '/verification-status' },
         { id: 'password', title: 'Mot de passe et sécurité', icon: Lock, route: '/security-settings' }
       ]
     },
-    {
+    ...(profile?.role === 'provider' ? [{
       section: 'Services',
       items: [
         { id: 'services', title: 'Gérer mes services', icon: DollarSign, route: '/service-management' },
         { id: 'availability', title: 'Calendrier de disponibilité', icon: Clock, route: '/availability-calendar' },
         { id: 'pricing', title: 'Tarifs et conditions', icon: DollarSign, route: '/pricing-settings' }
       ]
-    },
+    }] : []),
     {
       section: 'Support',
       items: [
-        { id: 'help', title: 'Centre d\'aide', icon: HelpCircle, route: '/help-center' },
+        { id: 'help', title: 'Centre d\'aide', icon: HelpCircle, route: '/help-support' },
         { id: 'contact_support', title: 'Contacter le support', icon: Phone, route: '/contact-support' },
-        { id: 'feedback', title: 'Envoyer des commentaires', icon: Mail, route: '/feedback' }
+        { id: 'feedback', title: 'Envoyer des commentaires', icon: Mail, route: '/send-feedback' }
       ]
     }
   ];

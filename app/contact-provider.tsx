@@ -63,50 +63,86 @@ export default function ContactProviderScreen() {
       return;
     }
 
+    if (!user?.id || !provider?.id) {
+      Alert.alert('Erreur', 'Utilisateur ou prestataire non trouvé');
+      return;
+    }
+
     try {
-      // Create or get existing conversation
-      const { data: existingConversation } = await supabase
+      console.log('Sending message...', { userId: user.id, providerId: provider.id });
+
+      // Check if conversation exists
+      const { data: existingConversation, error: searchError } = await supabase
         .from('conversations')
         .select('id')
-        .contains('participants', [user?.id, provider.id])
-        .single();
+        .filter('participants', 'cs', `{${user.id}}`)
+        .filter('participants', 'cs', `{${provider.id}}`)
+        .limit(1);
+
+      if (searchError) {
+        console.error('Search error:', searchError);
+        throw new Error(`Search failed: ${searchError.message}`);
+      }
 
       let conversationId;
 
-      if (existingConversation) {
-        conversationId = existingConversation.id;
+      if (existingConversation && existingConversation.length > 0) {
+        conversationId = existingConversation[0].id;
+        console.log('Using existing conversation:', conversationId);
       } else {
         // Create new conversation
+        console.log('Creating new conversation...');
         const { data: newConversation, error: conversationError } = await supabase
           .from('conversations')
           .insert({
-            participants: [user?.id, provider.id],
-            last_message_at: new Date().toISOString()
+            participants: [user.id, provider.id],
+            last_message_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
           })
-          .select()
+          .select('id')
           .single();
 
-        if (conversationError) throw conversationError;
+        if (conversationError) {
+          console.error('Conversation creation error:', conversationError);
+          throw new Error(`Failed to create conversation: ${conversationError.message}`);
+        }
+
         conversationId = newConversation.id;
+        console.log('Created new conversation:', conversationId);
       }
 
       // Send message
+      console.log('Sending message to conversation:', conversationId);
       const { error: messageError } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
-          sender_id: user?.id,
-          content: message,
-          message_type: 'text'
+          sender_id: user.id,
+          content: message.trim(),
+          message_type: 'text',
+          is_read: false,
+          created_at: new Date().toISOString()
         });
 
-      if (messageError) throw messageError;
+      if (messageError) {
+        console.error('Message creation error:', messageError);
+        throw new Error(`Failed to send message: ${messageError.message}`);
+      }
 
-      // Update conversation last message
-      await supabase
+      // Update conversation timestamp
+      const { error: updateError } = await supabase
         .from('conversations')
-        .update({ last_message_at: new Date().toISOString() })
+        .update({
+          last_message_at: new Date().toISOString()
+        })
         .eq('id', conversationId);
+
+      if (updateError) {
+        console.warn('Failed to update conversation timestamp:', updateError);
+        // Non-critical error, don't throw
+      }
+
+      console.log('Message sent successfully');
 
       Alert.alert(
         'Message envoyé!',
@@ -114,13 +150,29 @@ export default function ContactProviderScreen() {
         [
           {
             text: 'OK',
-            onPress: () => router.push(`/chat?conversationId=${conversationId}`)
+            onPress: () => {
+              setMessage(''); // Clear the message
+              router.push(`/chat?conversationId=${conversationId}`);
+            }
           }
         ]
       );
+
     } catch (error) {
-      console.error('Error sending message:', error);
-      Alert.alert('Erreur', 'Impossible d\'envoyer le message');
+      console.error('Full error details:', error);
+
+      // More specific error messages
+      let errorMessage = 'Impossible d\'envoyer le message';
+
+      if (error.message.includes('RLS')) {
+        errorMessage = 'Permissions insuffisantes. Veuillez vous reconnecter.';
+      } else if (error.message.includes('network')) {
+        errorMessage = 'Problème de connexion. Vérifiez votre internet.';
+      } else if (error.message.includes('participants')) {
+        errorMessage = 'Erreur de configuration utilisateur.';
+      }
+
+      Alert.alert('Erreur', `${errorMessage}\n\nDétails: ${error.message}`);
     }
   };
 

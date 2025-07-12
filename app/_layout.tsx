@@ -64,6 +64,12 @@ export default function RootLayout() {
           <Stack.Screen name="chat" />
           <Stack.Screen name="emergency-center" />
           <Stack.Screen name="advanced-search" />
+          <Stack.Screen name="help-support" />
+          <Stack.Screen name="personal-info" />
+          <Stack.Screen name="security-settings" />
+          <Stack.Screen name="pricing-settings" />
+          <Stack.Screen name="contact-support" />
+          <Stack.Screen name="send-feedback" />
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style="auto" />

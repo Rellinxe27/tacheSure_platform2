@@ -1,11 +1,12 @@
-// app/(tabs)/index.tsx (Updated with real data integration)
+// app/(tabs)/index.tsx - Updated with role-based logic
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Search, Shield, Star, MapPin, Clock, TriangleAlert as AlertTriangle, TrendingUp, Award, Zap } from 'lucide-react-native';
+import { Search, Shield, Star, MapPin, Clock, TriangleAlert as AlertTriangle, TrendingUp, Award, Zap, Briefcase, Calendar, DollarSign } from 'lucide-react-native';
 import TrustBadge from '@/components/TrustBadge';
 import SafetyButton from '@/components/SafetyButton';
 import { useAuth } from '@/app/contexts/AuthContext';
+import RoleBasedAccess from '@/components/RoleBasedAccess';
 import { useTasks } from '@/hooks/useTasks';
 import { useServices } from '@/hooks/useServices';
 import { useCategories } from '@/hooks/useCategories';
@@ -39,10 +40,7 @@ export default function HomeScreen() {
   const { services: featuredServices, loading: servicesLoading } = useServices();
 
   useEffect(() => {
-    // TODO: Fetch real platform statistics
-    // For now, we'll use the existing mock data structure
     const fetchPlatformStats = async () => {
-      // This would typically come from a dashboard/analytics endpoint
       setPlatformStats({
         totalTasks: 1247,
         activePlatform: '24/7',
@@ -56,10 +54,16 @@ export default function HomeScreen() {
     fetchPlatformStats();
   }, []);
 
-  const quickActions = [
+  const clientQuickActions = [
     { id: 'emergency', title: 'Centre d\'urgence', icon: AlertTriangle, color: '#FF5722', route: '/emergency-center' },
     { id: 'advanced_search', title: 'Recherche avancée', icon: Search, color: '#2196F3', route: '/advanced-search' },
     { id: 'post_urgent', title: 'Tâche urgente', icon: Zap, color: '#FF9800', route: '/post-task' }
+  ];
+
+  const providerQuickActions = [
+    { id: 'task_requests', title: 'Nouvelles demandes', icon: Briefcase, color: '#FF7A00', route: '/task-requests' },
+    { id: 'calendar', title: 'Mon planning', icon: Calendar, color: '#4CAF50', route: '/availability-calendar' },
+    { id: 'earnings', title: 'Mes revenus', icon: DollarSign, color: '#2196F3', route: '/earnings' }
   ];
 
   const getGreeting = () => {
@@ -170,32 +174,56 @@ export default function HomeScreen() {
             <SafetyButton />
           </View>
 
-          <TouchableOpacity
-            style={styles.searchContainer}
-            onPress={() => router.push('/(tabs)/search')}
-          >
-            <Search size={20} color="#666" />
-            <Text style={styles.searchPlaceholder}>Rechercher un service...</Text>
-          </TouchableOpacity>
+          {/* Search bar - Only for clients */}
+          <RoleBasedAccess allowedRoles={['client']}>
+            <TouchableOpacity
+              style={styles.searchContainer}
+              onPress={() => router.push('/(tabs)/search')}
+            >
+              <Search size={20} color="#666" />
+              <Text style={styles.searchPlaceholder}>Rechercher un service...</Text>
+            </TouchableOpacity>
+          </RoleBasedAccess>
 
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{platformStats.safetyScore}%</Text>
-              <Text style={styles.statLabel}>Sécurité</Text>
+          {/* Provider stats */}
+          <RoleBasedAccess allowedRoles={['provider']}>
+            <View style={styles.providerStatsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>12</Text>
+                <Text style={styles.statLabel}>Demandes</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>8</Text>
+                <Text style={styles.statLabel}>Actives</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>4.8</Text>
+                <Text style={styles.statLabel}>Note</Text>
+              </View>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{platformStats.totalTasks}</Text>
-              <Text style={styles.statLabel}>Tâches actives</Text>
+          </RoleBasedAccess>
+
+          {/* Platform stats - Only for clients */}
+          <RoleBasedAccess allowedRoles={['client']}>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{platformStats.safetyScore}%</Text>
+                <Text style={styles.statLabel}>Sécurité</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{platformStats.totalTasks}</Text>
+                <Text style={styles.statLabel}>Tâches actives</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{platformStats.averageResponse}</Text>
+                <Text style={styles.statLabel}>Réponse moy.</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{platformStats.successRate}%</Text>
+                <Text style={styles.statLabel}>Succès</Text>
+              </View>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{platformStats.averageResponse}</Text>
-              <Text style={styles.statLabel}>Réponse moy.</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{platformStats.successRate}%</Text>
-              <Text style={styles.statLabel}>Succès</Text>
-            </View>
-          </View>
+          </RoleBasedAccess>
         </View>
       </LinearGradient>
 
@@ -203,39 +231,68 @@ export default function HomeScreen() {
         <View style={styles.quickActionsSection}>
           <Text style={styles.sectionTitle}>Actions rapides</Text>
           <View style={styles.quickActionsGrid}>
-            {quickActions.map((action) => (
-              <TouchableOpacity
-                key={action.id}
-                style={styles.quickActionCard}
-                onPress={() => router.push(action.route as any)}
-              >
-                <View style={[styles.quickActionIcon, { backgroundColor: action.color }]}>
-                  <action.icon size={20} color="#FFFFFF" />
-                </View>
-                <Text style={styles.quickActionText}>{action.title}</Text>
-              </TouchableOpacity>
-            ))}
+            <RoleBasedAccess allowedRoles={['client']}>
+              <>
+                {clientQuickActions.map((action) => (
+                  <TouchableOpacity
+                    key={action.id}
+                    style={styles.quickActionCard}
+                    onPress={() => router.push(action.route as any)}
+                  >
+                    <View style={[styles.quickActionIcon, { backgroundColor: action.color }]}>
+                      <action.icon size={20} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.quickActionText}>{action.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            </RoleBasedAccess>
+
+            <RoleBasedAccess allowedRoles={['provider']}>
+              <>
+                {providerQuickActions.map((action) => (
+                  <TouchableOpacity
+                    key={action.id}
+                    style={styles.quickActionCard}
+                    onPress={() => router.push(action.route as any)}
+                  >
+                    <View style={[styles.quickActionIcon, { backgroundColor: action.color }]}>
+                      <action.icon size={20} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.quickActionText}>{action.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </>
+            </RoleBasedAccess>
           </View>
         </View>
 
-        {categories.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Catégories populaires</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
-                <TrendingUp size={20} color="#FF7A00" />
-              </TouchableOpacity>
+        {/* Categories - Only for clients */}
+        <RoleBasedAccess allowedRoles={['client']}>
+          {categories.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Catégories populaires</Text>
+                <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
+                  <TrendingUp size={20} color="#FF7A00" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.categoriesGrid}>
+                {categories.slice(0, 6).map((category, index) => renderCategoryCard(category, index))}
+              </View>
             </View>
-            <View style={styles.categoriesGrid}>
-              {categories.slice(0, 6).map((category, index) => renderCategoryCard(category, index))}
-            </View>
-          </View>
-        )}
+          )}
+        </RoleBasedAccess>
 
+        {/* Urgent tasks */}
         {urgentTasks.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Tâches urgentes</Text>
+              <Text style={styles.sectionTitle}>
+                <RoleBasedAccess allowedRoles={['client']} fallback="Opportunités urgentes">
+                  Tâches urgentes
+                </RoleBasedAccess>
+              </Text>
               <TouchableOpacity onPress={() => router.push('/tasks?urgency=high')}>
                 <AlertTriangle size={20} color="#FF5722" />
               </TouchableOpacity>
@@ -244,7 +301,8 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {profile?.role === 'client' && (
+        {/* Client-specific sections */}
+        <RoleBasedAccess allowedRoles={['client']}>
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Prestataires recommandés</Text>
@@ -252,27 +310,26 @@ export default function HomeScreen() {
                 <Award size={20} color="#FFD700" />
               </TouchableOpacity>
             </View>
-            {/* TODO: Implement provider recommendations based on user preferences */}
             <Text style={styles.placeholderText}>
               Prestataires recommandés basés sur vos préférences - En cours de développement
             </Text>
           </View>
-        )}
+        </RoleBasedAccess>
 
-        {profile?.role === 'provider' && (
+        {/* Provider-specific sections */}
+        <RoleBasedAccess allowedRoles={['provider']}>
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Opportunités pour vous</Text>
-              <TouchableOpacity onPress={() => router.push('/opportunities')}>
+              <Text style={styles.sectionTitle}>Mes performances</Text>
+              <TouchableOpacity onPress={() => router.push('/provider-dashboard')}>
                 <TrendingUp size={20} color="#4CAF50" />
               </TouchableOpacity>
             </View>
-            {/* TODO: Show relevant tasks based on provider skills */}
             <Text style={styles.placeholderText}>
-              Tâches correspondant à vos compétences - En cours de développement
+              Statistiques détaillées disponibles dans le tableau de bord
             </Text>
           </View>
-        )}
+        </RoleBasedAccess>
 
         <View style={styles.safetySection}>
           <View style={styles.safetyHeader}>
@@ -379,6 +436,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
     paddingVertical: 12,
+  },
+  providerStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginBottom: 20,
   },
   statItem: {
     alignItems: 'center',

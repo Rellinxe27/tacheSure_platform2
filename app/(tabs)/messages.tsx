@@ -21,7 +21,15 @@ export default function MessagesScreen() {
   };
 
   const renderConversationItem = ({ item }: { item: any }) => {
-    const otherParticipant = item.participants?.find((p: string) => p !== user?.id);
+    // Get the other participant's info
+    const otherParticipant = item.other_participant;
+    const participantName = otherParticipant?.full_name || 'Utilisateur';
+    const participantAvatar = otherParticipant?.avatar_url;
+
+    // Determine online status
+    const isOnline = otherParticipant?.last_seen_at
+      ? new Date().getTime() - new Date(otherParticipant.last_seen_at).getTime() < 5 * 60 * 1000 // 5 minutes
+      : false;
 
     return (
       <TouchableOpacity
@@ -29,17 +37,25 @@ export default function MessagesScreen() {
         onPress={() => handleConversationPress(item.id)}
       >
         <View style={styles.avatarContainer}>
-          <Image
-            source={{ uri: `https://images.pexels.com/photos/1681010/pexels-photo-1681010.jpeg?auto=compress&cs=tinysrgb&w=100&h=100&fit=crop` }}
-            style={styles.avatar}
-          />
-          <View style={styles.onlineIndicator} />
+          {participantAvatar ? (
+            <Image
+              source={{ uri: participantAvatar }}
+              style={styles.avatar}
+            />
+          ) : (
+            <View style={styles.defaultAvatar}>
+              <Text style={styles.avatarText}>
+                {participantName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          {isOnline && <View style={styles.onlineIndicator} />}
         </View>
 
         <View style={styles.conversationContent}>
           <View style={styles.conversationHeader}>
             <Text style={styles.participantName}>
-              {otherParticipant || 'Utilisateur'}
+              {participantName}
             </Text>
             <Text style={styles.timestamp}>
               {formatTimeAgo(item.last_message_at || item.created_at)}
@@ -59,11 +75,18 @@ export default function MessagesScreen() {
 
         {item.unread_count > 0 && (
           <View style={styles.unreadBadge}>
-            <Text style={styles.unreadCount}>{item.unread_count}</Text>
+            <Text style={styles.unreadCount}>
+              {item.unread_count > 99 ? '99+' : item.unread_count}
+            </Text>
           </View>
         )}
       </TouchableOpacity>
     );
+  };
+
+  // Pull to refresh functionality
+  const handleRefresh = () => {
+    refetch();
   };
 
   if (loading) {
@@ -107,6 +130,8 @@ export default function MessagesScreen() {
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.conversationsList}
+          onRefresh={handleRefresh}
+          refreshing={loading}
         />
       )}
     </View>

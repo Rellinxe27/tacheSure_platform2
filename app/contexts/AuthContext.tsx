@@ -1,4 +1,4 @@
-// app/contexts/AuthContext.tsx - Enhanced with full database integration
+// app/contexts/AuthContext.tsx - Enhanced with real-time status updates
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -37,6 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
+  const [updateInterval, setUpdateInterval] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Get initial session
@@ -70,12 +71,53 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Update user activity when online status changes
+  // Update user activity periodically when online
   useEffect(() => {
-    if (user && profile) {
+    if (user && profile && isOnline) {
+      // Update immediately
       updateLastSeen(user.id);
+
+      // Then update every 30 seconds
+      const interval = setInterval(() => {
+        updateLastSeen(user.id);
+      }, 30000);
+
+      setUpdateInterval(interval);
+
+      return () => {
+        if (interval) clearInterval(interval);
+      };
+    } else if (updateInterval) {
+      clearInterval(updateInterval);
+      setUpdateInterval(null);
     }
-  }, [isOnline, user]);
+  }, [isOnline, user, profile]);
+
+  // Subscribe to profile changes for real-time updates
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel(`profile-${profile.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${profile.id}`
+        },
+        (payload) => {
+          console.log('Profile updated:', payload.new);
+          setProfile(payload.new as Profile);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id]);
 
   const fetchProfile = async (userId: string) => {
     try {

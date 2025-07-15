@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Shield, FileText, Upload, AlertTriangle, CheckCircle, User, Calendar, MapPin } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useVerification } from '@/hooks/useVerification';
+import { supabase } from '@/lib/supabase';
+import { profile } from '@expo/fingerprint/build/utils/Profile';
 
 export default function BackgroundCheckScreen() {
   const router = useRouter();
+  const { user, profile } = useAuth();
+  const { uploadDocument } = useVerification();
   const [formData, setFormData] = useState({
-    fullName: 'Kouadio Jean Pierre',
-    birthDate: '15/03/1985',
-    birthPlace: 'Abidjan, Côte d\'Ivoire',
-    nationality: 'Ivoirienne',
-    currentAddress: '123 Rue de la Paix, Cocody, Abidjan',
+    fullName: profile?.full_name || '',
+    birthDate: profile?.date_of_birth || '',
+    birthPlace: '',
+    nationality: profile?.nationality || 'Ivoirienne',
+    currentAddress: profile?.address?.street || '',
     previousAddresses: '',
-    profession: 'Plombier',
+    profession: '',
     employmentHistory: '',
     motherName: '',
     fatherName: '',
@@ -23,6 +29,7 @@ export default function BackgroundCheckScreen() {
 
   const [step, setStep] = useState<'form' | 'document' | 'processing' | 'complete'>('form');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | null>(null);
 
   const handleFormSubmit = () => {
     if (!formData.fullName || !formData.birthDate || !formData.birthPlace) {
@@ -44,20 +51,67 @@ export default function BackgroundCheckScreen() {
     );
   };
 
-  const simulateUpload = () => {
+  const simulateUpload = async () => {
     setStep('processing');
     setIsSubmitting(true);
 
-    setTimeout(() => {
+    try {
+      // In production, implement actual file upload to Supabase Storage
+      const mockDocumentUrl = 'https://example.com/casier-judiciaire-' + Date.now() + '.pdf';
+      setUploadedDocumentUrl(mockDocumentUrl);
+
+      // Save form data and document to database
+      const { error } = await uploadDocument({
+        document_type: 'criminal_record',
+        document_url: mockDocumentUrl,
+        verification_data: {
+          ...formData,
+          uploadedAt: new Date().toISOString(),
+          documentType: 'Extrait de casier judiciaire B3',
+          issuingAuthority: 'Tribunal de Première Instance d\'Abidjan'
+        }
+      });
+
+      if (error) {
+        throw new Error(error);
+      }
+
+      // Update user profile with additional info
+      if (user) {
+        await supabase
+          .from('profiles')
+          .update({
+            Update: undefined,
+            date_of_birth: formData.birthDate,
+            nationality: formData.nationality,
+            address: {
+              ...profile?.address,
+              street: formData.currentAddress
+            },
+            emergency_contacts: formData.emergencyContact ? [{
+              name: formData.emergencyContact,
+              relationship: 'Contact d\'urgence'
+            }] : profile?.emergency_contacts
+          })
+          .eq('id', user.id);
+      }
+
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setStep('complete');
+      }, 3000);
+    } catch (error) {
+      console.error('Error uploading background check:', error);
       setIsSubmitting(false);
-      setStep('complete');
-    }, 3000);
+      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'envoi du document');
+      setStep('document');
+    }
   };
 
   const showInstructions = () => {
     Alert.alert(
       'Comment obtenir votre casier judiciaire',
-      '1. Rendez-vous au tribunal de première instance\n2. Demandez un extrait de casier judiciaire\n3. Présentez votre CNI et 1000 FCFA\n4. Le document sera délivré sous 48h\n5. Scannez et téléchargez le document ici',
+      '1. Rendez-vous au tribunal de première instance\n2. Demandez un extrait de casier judiciaire B3\n3. Présentez votre CNI et 1000 FCFA\n4. Le document sera délivré sous 48h\n5. Scannez et téléchargez le document ici',
       [{ text: 'Compris' }]
     );
   };
@@ -104,6 +158,8 @@ export default function BackgroundCheckScreen() {
               <Text style={styles.processingStepText}>Vérification autorités</Text>
             </View>
           </View>
+
+          <ActivityIndicator size="large" color="#FF7A00" style={{ marginTop: 24 }} />
         </View>
       </View>
     );
@@ -121,16 +177,16 @@ export default function BackgroundCheckScreen() {
 
         <View style={styles.successContainer}>
           <CheckCircle size={80} color="#4CAF50" />
-          <Text style={styles.successTitle}>Casier judiciaire vérifié!</Text>
+          <Text style={styles.successTitle}>Document soumis avec succès!</Text>
           <Text style={styles.successText}>
-            Votre casier judiciaire a été vérifié avec succès. Cela augmente significativement votre score de confiance.
+            Votre casier judiciaire a été reçu et sera vérifié par notre équipe dans les 24-48 heures.
           </Text>
 
           <View style={styles.benefitsCard}>
             <Text style={styles.benefitsTitle}>Avantages obtenus:</Text>
             <View style={styles.benefitItem}>
               <CheckCircle size={16} color="#4CAF50" />
-              <Text style={styles.benefitText}>+30 points de confiance</Text>
+              <Text style={styles.benefitText}>+30 points de confiance (après validation)</Text>
             </View>
             <View style={styles.benefitItem}>
               <Shield size={16} color="#4CAF50" />

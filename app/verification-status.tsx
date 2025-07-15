@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Shield, CheckCircle, Clock, XCircle, Camera, Upload, User, FileText, Award } from 'lucide-react-native';
+import { ArrowLeft, Shield, CheckCircle, Clock, XCircle, Camera, Upload, User, FileText, Award, AlertTriangle } from 'lucide-react-native';
+import { useAuth } from '@/app/contexts/AuthContext';
+import { useVerification } from '@/hooks/useVerification';
+import { supabase } from '@/lib/supabase';
 
 interface VerificationStep {
   id: string;
@@ -10,129 +13,296 @@ interface VerificationStep {
   status: 'pending' | 'submitted' | 'approved' | 'rejected';
   level: number;
   required: boolean;
+  documentType: string;
+  rejectionReason?: string;
+  expiresAt?: string;
 }
 
 export default function VerificationStatusScreen() {
   const router = useRouter();
+  const { user, profile, updateProfile } = useAuth();
+  const { documents, loading: documentsLoading, uploadDocument, getVerificationProgress } = useVerification();
+  const [verificationSteps, setVerificationSteps] = useState<VerificationStep[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const [verificationSteps, setVerificationSteps] = useState<VerificationStep[]>([
+  const stepDefinitions = [
     {
       id: 'phone',
       title: 'Numéro de téléphone',
       description: 'Vérification par SMS',
-      status: 'approved',
       level: 1,
-      required: true
+      required: true,
+      documentType: 'phone_verification'
     },
     {
       id: 'email',
       title: 'Adresse email',
       description: 'Confirmation par email',
-      status: 'approved',
       level: 1,
-      required: true
+      required: true,
+      documentType: 'email_verification'
     },
     {
       id: 'identity',
       title: 'Carte d\'identité (CNI)',
       description: 'Scan et reconnaissance faciale',
-      status: 'submitted',
       level: 2,
-      required: true
+      required: true,
+      documentType: 'cni'
     },
     {
       id: 'address',
       title: 'Justificatif de domicile',
       description: 'Facture récente (électricité/eau)',
-      status: 'approved',
       level: 2,
-      required: true
+      required: true,
+      documentType: 'address_proof'
     },
     {
       id: 'background',
       title: 'Casier judiciaire',
       description: 'Vérification antécédents',
-      status: 'pending',
       level: 3,
-      required: false
+      required: false,
+      documentType: 'criminal_record'
     },
     {
       id: 'references',
       title: 'Références professionnelles',
       description: '2-3 contacts vérifiables',
-      status: 'pending',
       level: 3,
-      required: false
+      required: false,
+      documentType: 'professional_references'
     },
     {
       id: 'community',
       title: 'Validation communautaire',
       description: 'Recommandation locale',
-      status: 'pending',
       level: 4,
-      required: false
+      required: false,
+      documentType: 'community_validation'
     }
-  ]);
+  ];
 
-  const currentLevel = Math.max(...verificationSteps.filter(s => s.status === 'approved').map(s => s.level));
-  const trustScore = calculateTrustScore();
+  useEffect(() => {
+    loadVerificationStatus();
+  }, [documents, profile]);
 
-  function calculateTrustScore(): number {
-    const approved = verificationSteps.filter(s => s.status === 'approved');
-    const levelWeights = { 1: 20, 2: 25, 3: 30, 4: 40 };
-    return approved.reduce((score, step) => score + (levelWeights[step.level as keyof typeof levelWeights] || 0), 0);
-  }
+  const loadVerificationStatus = async () => {
+    try {
+      setLoading(true);
 
-  const handleVerificationAction = (stepId: string) => {
-    const step = verificationSteps.find(s => s.id === stepId);
-    if (!step) return;
+      // Map documents to verification steps
+      const steps = stepDefinitions.map(stepDef => {
+        // Check basic verifications from profile
+        if (stepDef.documentType === 'phone_verification') {
+          return {
+            ...stepDef,
+            status: profile?.phone ? 'approved' : 'pending'
+          } as VerificationStep;
+        }
 
-    if (step.status === 'pending') {
-      if (step.id === 'identity') {
-        router.push('/document-scanner');
-      } else if (step.id === 'background') {
-        router.push('/background-check');
-      } else if (step.id === 'references') {
-        router.push('/references-form');
-      } else {
-        startVerification(stepId);
-      }
-    } else if (step.status === 'rejected') {
-      resubmitVerification(stepId);
+        if (stepDef.documentType === 'email_verification') {
+          return {
+            ...stepDef,
+            status: profile?.email ? 'approved' : 'pending'
+          } as VerificationStep;
+        }
+
+        // Check document verification status
+        const doc = documents.find(d => d.document_type === stepDef.documentType);
+
+        return {
+          ...stepDef,
+          status: doc ? doc.verification_status : 'pending',
+          rejectionReason: doc?.rejection_reason || undefined,
+          expiresAt: doc?.expires_at || undefined
+        } as VerificationStep;
+      });
+
+      setVerificationSteps(steps);
+    } catch (error) {
+      console.error('Error loading verification status:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const startVerification = (stepId: string) => {
+  const refreshVerificationStatus = async () => {
+    setRefreshing(true);
+    await loadVerificationStatus();
+    setRefreshing(false);
+  };
+
+  const calculateTrustScore = (): number => {
+    const approved = verificationSteps.filter(s => s.status === 'approved');
+    const levelWeights = { 1: 20, 2: 25, 3: 30, 4: 40 };
+    const score = approved.reduce((total, step) =>
+      total + (levelWeights[step.level as keyof typeof levelWeights] || 0), 0
+    );
+    return Math.min(score, 100);
+  };
+
+  const updateTrustScore = async (newScore: number) => {
+    if (!user) return;
+
+    const { error } = await updateProfile({
+      trust_score: newScore,
+      verification_level: getVerificationLevel(newScore)
+    });
+
+    if (error) {
+      console.error('Error updating trust score:', error);
+    }
+  };
+
+  const getVerificationLevel = (score: number): 'basic' | 'government' | 'enhanced' | 'community' => {
+    if (score >= 90) return 'community';
+    if (score >= 70) return 'enhanced';
+    if (score >= 40) return 'government';
+    return 'basic';
+  };
+
+  const handleVerificationAction = async (stepId: string) => {
+    const step = verificationSteps.find(s => s.id === stepId);
+    if (!step) return;
+
+    if (step.status === 'pending' || step.status === 'rejected') {
+      switch (step.id) {
+        case 'phone':
+          await verifyPhone();
+          break;
+        case 'email':
+          await verifyEmail();
+          break;
+        case 'identity':
+          router.push('/document-scanner');
+          break;
+        case 'background':
+          router.push('/background-check');
+          break;
+        case 'references':
+          router.push('/references-form');
+          break;
+        case 'address':
+          await uploadAddressProof();
+          break;
+        case 'community':
+          await requestCommunityValidation();
+          break;
+      }
+    }
+  };
+
+  const verifyPhone = async () => {
     Alert.alert(
-      'Démarrer la vérification',
-      `Lancer la vérification pour ${verificationSteps.find(s => s.id === stepId)?.title}?`,
+      'Vérification téléphone',
+      'Un SMS sera envoyé à votre numéro pour vérification.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Démarrer',
-          onPress: () => {
-            setVerificationSteps(prev => prev.map(step =>
-              step.id === stepId ? { ...step, status: 'submitted' } : step
-            ));
-            Alert.alert('Vérification soumise', 'Votre demande est en cours de traitement');
+          text: 'Envoyer SMS',
+          onPress: async () => {
+            // In production, implement SMS verification
+            // For now, simulate verification
+            const { error } = await uploadDocument({
+              document_type: 'phone_verification',
+              document_url: 'verified',
+              verification_data: { phone: profile?.phone }
+            });
+
+            if (!error) {
+              Alert.alert('Succès', 'Numéro de téléphone vérifié');
+              await refreshVerificationStatus();
+              const newScore = calculateTrustScore();
+              await updateTrustScore(newScore);
+            }
           }
         }
       ]
     );
   };
 
-  const resubmitVerification = (stepId: string) => {
+  const verifyEmail = async () => {
     Alert.alert(
-      'Nouvelle soumission',
-      'Voulez-vous soumettre de nouveaux documents?',
+      'Vérification email',
+      'Un email de confirmation sera envoyé à votre adresse.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Resubmit',
-          onPress: () => {
-            setVerificationSteps(prev => prev.map(step =>
-              step.id === stepId ? { ...step, status: 'submitted' } : step
-            ));
+          text: 'Envoyer email',
+          onPress: async () => {
+            const { error } = await uploadDocument({
+              document_type: 'email_verification',
+              document_url: 'verified',
+              verification_data: { email: profile?.email }
+            });
+
+            if (!error) {
+              Alert.alert('Succès', 'Email vérifié');
+              await refreshVerificationStatus();
+              const newScore = calculateTrustScore();
+              await updateTrustScore(newScore);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const uploadAddressProof = async () => {
+    Alert.alert(
+      'Justificatif de domicile',
+      'Téléchargez une facture récente (électricité, eau, etc.)',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Sélectionner document',
+          onPress: async () => {
+            // In production, implement document picker
+            // For now, simulate upload
+            const { error } = await uploadDocument({
+              document_type: 'address_proof',
+              document_url: 'https://example.com/address-proof.pdf',
+              verification_data: {
+                address: profile?.address,
+                uploadedAt: new Date().toISOString()
+              }
+            });
+
+            if (!error) {
+              Alert.alert('Succès', 'Document soumis pour vérification');
+              await refreshVerificationStatus();
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const requestCommunityValidation = async () => {
+    Alert.alert(
+      'Validation communautaire',
+      'Cette étape nécessite des recommandations de membres vérifiés de votre communauté.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Demander validation',
+          onPress: async () => {
+            const { error } = await uploadDocument({
+              document_type: 'community_validation',
+              document_url: 'pending',
+              verification_data: {
+                requestedAt: new Date().toISOString(),
+                requiredValidations: 3
+              }
+            });
+
+            if (!error) {
+              Alert.alert('Demande envoyée', 'Votre demande de validation communautaire a été soumise');
+              await refreshVerificationStatus();
+            }
           }
         }
       ]
@@ -168,6 +338,18 @@ export default function VerificationStatusScreen() {
     );
   };
 
+  const currentLevel = Math.max(...verificationSteps.filter(s => s.status === 'approved').map(s => s.level), 0);
+  const trustScore = calculateTrustScore();
+
+  if (loading || documentsLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FF7A00" />
+        <Text style={styles.loadingText}>Chargement du statut de vérification...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -175,7 +357,9 @@ export default function VerificationStatusScreen() {
           <ArrowLeft size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Statut de vérification</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity onPress={refreshVerificationStatus}>
+          <Text style={styles.refreshText}>Actualiser</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -221,12 +405,19 @@ export default function VerificationStatusScreen() {
                     key={step.id}
                     style={styles.stepItem}
                     onPress={() => handleVerificationAction(step.id)}
+                    disabled={step.status === 'submitted'}
                   >
                     <View style={styles.stepInfo}>
                       {getStatusIcon(step.status)}
                       <View style={styles.stepDetails}>
                         <Text style={styles.stepTitle}>{step.title}</Text>
                         <Text style={styles.stepDescription}>{step.description}</Text>
+                        {step.rejectionReason && (
+                          <View style={styles.rejectionInfo}>
+                            <AlertTriangle size={12} color="#FF5722" />
+                            <Text style={styles.rejectionText}>{step.rejectionReason}</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
 
@@ -288,6 +479,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+  },
+  loadingText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginTop: 12,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -301,6 +504,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
     color: '#333',
+  },
+  refreshText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#FF7A00',
   },
   content: {
     flex: 1,
@@ -422,6 +630,18 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
     marginTop: 2,
+  },
+  rejectionInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  rejectionText: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: '#FF5722',
+    marginLeft: 4,
+    flex: 1,
   },
   stepActions: {
     alignItems: 'flex-end',

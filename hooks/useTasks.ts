@@ -40,27 +40,27 @@ export const useTasks = (filters?: TaskFilters) => {
       let query = supabase
         .from('tasks')
         .select(`
-          *,
-          categories (
-            id,
-            name_fr,
-            icon
-          ),
-          client:profiles!client_id (
-            id,
-            full_name,
-            avatar_url,
-            is_verified,
-            trust_score
-          ),
-          provider:profiles!provider_id (
-            id,
-            full_name,
-            avatar_url,
-            is_verified,
-            trust_score
-          )
-        `)
+        *,
+        categories (
+          id,
+          name_fr,
+          icon
+        ),
+        client:profiles!client_id (
+          id,
+          full_name,
+          avatar_url,
+          is_verified,
+          trust_score
+        ),
+        provider:profiles!provider_id (
+          id,
+          full_name,
+          avatar_url,
+          is_verified,
+          trust_score
+        )
+      `)
         .order('created_at', { ascending: false });
 
       // Apply filters
@@ -84,12 +84,6 @@ export const useTasks = (filters?: TaskFilters) => {
         query = query.eq('category_id', filters.categoryId);
       }
 
-      // Location-based filtering (simplified - would need PostGIS functions in production)
-      if (filters?.location) {
-        // This is a simplified approach - in production you'd use ST_DWithin
-        // For now, we'll filter client-side after fetching
-      }
-
       if (filters?.limit) {
         query = query.limit(filters.limit);
       }
@@ -100,17 +94,7 @@ export const useTasks = (filters?: TaskFilters) => {
         console.error('Error fetching tasks:', fetchError);
         setError(fetchError.message);
       } else {
-        let filteredData = data || [];
-
-        // Client-side location filtering (temporary solution)
-        if (filters?.location && filteredData.length > 0) {
-          filteredData = filteredData.filter(task => {
-            // This would be replaced with proper PostGIS queries
-            return true; // For now, return all tasks
-          });
-        }
-
-        setTasks(filteredData);
+        setTasks(data || []);
       }
     } catch (err) {
       console.error('Unexpected error fetching tasks:', err);

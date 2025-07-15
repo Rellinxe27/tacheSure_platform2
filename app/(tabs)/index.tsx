@@ -29,12 +29,17 @@ export default function HomeScreen() {
     successRate: 96.8
   });
 
+
   // Fetch recent urgent tasks
-  const { tasks: urgentTasks, loading: tasksLoading } = useTasks({
-    status: 'posted',
+  const { tasks: allUrgentTasks, loading: tasksLoading } = useTasks({
     urgency: 'high',
-    limit: 5
+    limit: 10 // Get more to filter from
   });
+
+  // Filter to show active urgent tasks (not completed/cancelled)
+  const urgentTasks = allUrgentTasks.filter(task =>
+    ['posted', 'applications', 'selected'].includes(task.status)
+  ).slice(0, 5); // Take first 5 after filtering
 
   // Fetch featured services/providers
   const { services: featuredServices, loading: servicesLoading } = useServices();
@@ -98,7 +103,7 @@ export default function HomeScreen() {
     <TouchableOpacity
       key={task.id}
       style={styles.urgentTaskCard}
-      onPress={() => router.push(`/task/${task.id}`)}
+      onPress={() => router.push(`/task-details?taskId=${task.id}`)} // Changed this line
     >
       <View style={styles.urgentHeader}>
         <Text style={styles.urgentTitle}>{task.title}</Text>
@@ -284,7 +289,6 @@ export default function HomeScreen() {
           )}
         </RoleBasedAccess>
 
-        {/* Urgent tasks */}
         {urgentTasks.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -299,6 +303,7 @@ export default function HomeScreen() {
             </View>
             {urgentTasks.slice(0, 3).map(renderUrgentTask)}
           </View>
+        )}
         )}
 
         {/* Client-specific sections */}

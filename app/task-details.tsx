@@ -1,10 +1,10 @@
-// app/task-details.tsx - Enhanced with real-time updates
+// app/task-details.tsx - Enhanced with client controls and improved UI
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, Linking } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { ArrowLeft, MapPin, Clock, DollarSign, User, MessageCircle, Phone, Star, Shield } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Clock, DollarSign, User, MessageCircle, Phone, Star, Shield, Edit, Trash2 } from 'lucide-react-native';
 import TrustBadge from '@/components/TrustBadge';
 import SafetyButton from '@/components/SafetyButton';
 import PaymentSelector from '@/components/PaymentSelector';
@@ -31,9 +31,7 @@ export default function TaskDetailsScreen() {
     }
   }, [taskId]);
 
-  // Real-time subscriptions for live updates
   const setupRealTimeSubscriptions = () => {
-    // Subscribe to applications updates
     const applicationsSubscription = supabase
       .channel(`applications-${taskId}`)
       .on(
@@ -45,18 +43,15 @@ export default function TaskDetailsScreen() {
           filter: `task_id=eq.${taskId}`
         },
         (payload) => {
-          console.log('Applications updated:', payload);
-          // Only refresh if it's not an optimistic update we just made
           if (payload.eventType === 'INSERT' && payload.new.provider_id !== user?.id) {
-            fetchApplications(); // Only refresh for other users' applications
+            fetchApplications();
           } else if (payload.eventType !== 'INSERT') {
-            fetchApplications(); // Refresh for updates/deletes
+            fetchApplications();
           }
         }
       )
       .subscribe();
 
-    // Subscribe to task updates
     const taskSubscription = supabase
       .channel(`task-${taskId}`)
       .on(
@@ -68,8 +63,6 @@ export default function TaskDetailsScreen() {
           filter: `id=eq.${taskId}`
         },
         (payload) => {
-          console.log('Task updated:', payload.new);
-          // Update task but preserve local application count if higher
           setTask(prevTask => ({
             ...payload.new,
             applicant_count: Math.max(
@@ -106,7 +99,6 @@ export default function TaskDetailsScreen() {
       }
 
       setTask(data);
-      console.log('Task loaded:', data);
     } catch (error) {
       console.error('Error fetching task:', error);
       showNotification('Erreur lors du chargement de la tâche', 'error');
@@ -131,10 +123,8 @@ export default function TaskDetailsScreen() {
         return;
       }
 
-      console.log('Applications loaded:', data?.length || 0);
       setApplications(data || []);
 
-      // Update task status if applications exist and task is still "posted"
       if (data && data.length > 0 && task?.status === 'posted') {
         await supabase
           .from('tasks')
@@ -143,6 +133,83 @@ export default function TaskDetailsScreen() {
       }
     } catch (error) {
       console.error('Error fetching applications:', error);
+    }
+  };
+
+  const handleEditTask = () => {
+    router.push(`/task-edit?taskId=${taskId}`);
+  };
+
+  const handleDeleteTask = () => {
+    Alert.alert(
+      'Supprimer la tâche',
+      'Êtes-vous sûr de vouloir supprimer cette tâche ? Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('tasks')
+                .delete()
+                .eq('id', taskId);
+
+              if (error) {
+                showNotification('Erreur lors de la suppression', 'error');
+              } else {
+                showNotification('Tâche supprimée avec succès', 'success');
+                router.back();
+              }
+            } catch (error) {
+              showNotification('Erreur lors de la suppression', 'error');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleCall = (phone: string) => {
+    if (phone) {
+      Linking.openURL(`tel:${phone}`);
+    } else {
+      showNotification('Numéro de téléphone non disponible', 'error');
+    }
+  };
+
+  const handleMessage = async (providerId: string) => {
+    try {
+      // Check if conversation already exists
+      const { data: existingConversation } = await supabase
+        .from('conversations')
+        .select('id')
+        .contains('participants', [user?.id, providerId])
+        .single();
+
+      if (existingConversation) {
+        router.push(`/chat?conversationId=${existingConversation.id}`);
+      } else {
+        // Create new conversation
+        const { data: newConversation, error } = await supabase
+          .from('conversations')
+          .insert({
+            participants: [user?.id, providerId],
+            task_id: taskId,
+            last_message_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (error) {
+          showNotification('Erreur lors de la création de la conversation', 'error');
+        } else {
+          router.push(`/chat?conversationId=${newConversation.id}`);
+        }
+      }
+    } catch (error) {
+      showNotification('Erreur lors de l\'ouverture du chat', 'error');
     }
   };
 
@@ -170,7 +237,7 @@ export default function TaskDetailsScreen() {
         return;
       }
 
-      // Update application status
+      // Accept selected application
       const { error: appError } = await supabase
         .from('task_applications')
         .update({
@@ -183,6 +250,45 @@ export default function TaskDetailsScreen() {
         console.error('Error updating application:', appError);
       }
 
+      // Reject all other applications
+      const { error: rejectError } = await supabase
+        .from('task_applications')
+        .update({
+          status: 'rejected',
+          responded_at: new Date().toISOString()
+        })
+        .eq('task_id', task.id)
+        .neq('id', selectedProvider.id);
+
+      if (rejectError) {
+        console.error('Error rejecting other applications:', rejectError);
+      }
+
+      // Create notifications for rejected providers
+      const rejectedApps = applications.filter(app => app.id !== selectedProvider.id);
+      for (const app of rejectedApps) {
+        await supabase
+          .from('notifications')
+          .insert({
+            user_id: app.provider_id,
+            title: 'Candidature non retenue',
+            message: `Votre candidature pour "${task.title}" n'a pas été retenue. Continuez à postuler pour d'autres tâches!`,
+            type: 'task_application_rejected',
+            data: { task_id: task.id }
+          });
+      }
+
+      // Notify selected provider
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: selectedProvider.provider_id,
+          title: 'Candidature acceptée!',
+          message: `Félicitations! Vous avez été sélectionné pour "${task.title}".`,
+          type: 'task_application_accepted',
+          data: { task_id: task.id }
+        });
+
       // Create payment record
       const { error: paymentError } = await supabase
         .from('payments')
@@ -192,7 +298,8 @@ export default function TaskDetailsScreen() {
           payee_id: selectedProvider.provider_id,
           amount: selectedProvider.proposed_price,
           payment_method: method.id,
-          status: 'pending'
+          status: 'pending',
+          created_at: new Date().toISOString()
         });
 
       if (paymentError) {
@@ -208,15 +315,11 @@ export default function TaskDetailsScreen() {
   };
 
   const handleApplyForTask = async () => {
-    console.log('Apply button clicked');
-
     if (!user || !task) {
-      console.log('Missing user or task:', { user: !!user, task: !!task });
       showNotification('Erreur: données manquantes', 'error');
       return;
     }
 
-    // Check if already applied
     const existingApplication = applications.find(app => app.provider_id === user.id);
     if (existingApplication) {
       showNotification('Vous avez déjà postulé pour cette tâche', 'warning');
@@ -224,7 +327,6 @@ export default function TaskDetailsScreen() {
     }
 
     try {
-      // Optimistic UI update - show immediately
       const optimisticApplication = {
         id: 'temp-' + Date.now(),
         task_id: task.id,
@@ -236,15 +338,12 @@ export default function TaskDetailsScreen() {
         provider: profile
       };
 
-      // Update UI immediately
       setApplications(prev => [optimisticApplication, ...prev]);
       setTask(prev => ({
         ...prev,
         applicant_count: (prev.applicant_count || 0) + 1,
         status: 'applications'
       }));
-
-      console.log('Submitting application for task:', task.id);
 
       const { data, error } = await supabase
         .from('task_applications')
@@ -266,7 +365,6 @@ export default function TaskDetailsScreen() {
         .single();
 
       if (error) {
-        // Revert optimistic update on error
         setApplications(prev => prev.filter(app => app.id !== optimisticApplication.id));
         setTask(prev => ({
           ...prev,
@@ -279,12 +377,10 @@ export default function TaskDetailsScreen() {
         return;
       }
 
-      // Replace optimistic application with real data
       setApplications(prev => prev.map(app =>
         app.id === optimisticApplication.id ? data : app
       ));
 
-      // Update task in database
       await supabase
         .from('tasks')
         .update({
@@ -321,24 +417,13 @@ export default function TaskDetailsScreen() {
     }
   };
 
+  const isTaskOwner = profile?.role === 'client' && task?.client_id === user?.id;
   const canApply = profile?.role === 'provider' &&
     (task?.status === 'posted' || task?.status === 'applications') &&
     !applications.some(app => app.provider_id === user?.id);
-
-  const canSelectProvider = profile?.role === 'client' &&
-    task?.client_id === user?.id &&
+  const canSelectProvider = isTaskOwner &&
     (task?.status === 'applications' || task?.status === 'posted') &&
     applications.length > 0;
-
-  console.log('Render state:', {
-    userRole: profile?.role,
-    taskStatus: task?.status,
-    taskClientId: task?.client_id,
-    currentUserId: user?.id,
-    applicationsCount: applications.length,
-    canSelectProvider,
-    canApply
-  });
 
   if (loading) {
     return (
@@ -399,7 +484,19 @@ export default function TaskDetailsScreen() {
           <ArrowLeft size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Détails de la tâche</Text>
-        <SafetyButton />
+        <View style={styles.headerActions}>
+          {isTaskOwner && (task.status === 'posted' || task.status === 'applications') && (
+            <>
+              <TouchableOpacity style={styles.headerButton} onPress={handleEditTask}>
+                <Edit size={20} color="#FF7A00" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerButton} onPress={handleDeleteTask}>
+                <Trash2 size={20} color="#FF5722" />
+              </TouchableOpacity>
+            </>
+          )}
+          <SafetyButton />
+        </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -461,14 +558,12 @@ export default function TaskDetailsScreen() {
                 />
                 <View style={styles.clientDetails}>
                   <Text style={styles.clientName}>{task.client.full_name}</Text>
-                  {task.client.trust_score && (
-                    <TrustBadge
-                      trustScore={task.client.trust_score}
-                      verificationLevel={task.client.verification_level}
-                      isVerified={task.client.is_verified}
-                      size="small"
-                    />
-                  )}
+                  <TrustBadge
+                    trustScore={task.client.trust_score || 0}
+                    verificationLevel={task.client.verification_level || 'basic'}
+                    isVerified={task.client.is_verified || false}
+                    size="small"
+                  />
                 </View>
               </View>
             </View>
@@ -495,14 +590,12 @@ export default function TaskDetailsScreen() {
                   <View style={styles.applicationDetails}>
                     <View style={styles.applicationNameRow}>
                       <Text style={styles.providerName}>{application.provider?.full_name}</Text>
-                      {application.provider && (
-                        <TrustBadge
-                          trustScore={application.provider.trust_score || 0}
-                          verificationLevel={application.provider.verification_level}
-                          isVerified={application.provider.is_verified}
-                          size="small"
-                        />
-                      )}
+                      <TrustBadge
+                        trustScore={application.provider?.trust_score || 0}
+                        verificationLevel={application.provider?.verification_level || 'basic'}
+                        isVerified={application.provider?.is_verified || false}
+                        size="small"
+                      />
                     </View>
                     <Text style={styles.experience}>
                       Membre depuis {formatTimeAgo(application.provider?.created_at)}
@@ -530,11 +623,17 @@ export default function TaskDetailsScreen() {
                 )}
 
                 <View style={styles.applicationActions}>
-                  <TouchableOpacity style={styles.contactButton}>
+                  <TouchableOpacity
+                    style={styles.contactButton}
+                    onPress={() => handleMessage(application.provider_id)}
+                  >
                     <MessageCircle size={16} color="#666" />
                     <Text style={styles.contactButtonText}>Message</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.callButton}>
+                  <TouchableOpacity
+                    style={styles.callButton}
+                    onPress={() => handleCall(application.provider?.phone)}
+                  >
                     <Phone size={16} color="#666" />
                     <Text style={styles.callButtonText}>Appeler</Text>
                   </TouchableOpacity>
@@ -619,6 +718,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
     color: '#333',
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerButton: {
+    padding: 8,
+    marginRight: 8,
   },
   content: {
     flex: 1,

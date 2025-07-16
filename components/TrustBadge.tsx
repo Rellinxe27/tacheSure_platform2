@@ -1,86 +1,166 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Shield, Star, CircleCheck as CheckCircle } from 'lucide-react-native';
+import { Shield, Star, CircleCheck as CheckCircle, Award, Crown } from 'lucide-react-native';
 
 interface TrustBadgeProps {
   trustScore: number;
   verificationLevel: 'basic' | 'government' | 'enhanced' | 'community';
   isVerified: boolean;
   size?: 'small' | 'medium' | 'large';
+  showLabel?: boolean;
 }
 
-export default function TrustBadge({ 
-  trustScore, 
-  verificationLevel, 
-  isVerified, 
-  size = 'medium' 
-}: TrustBadgeProps) {
-  const getBadgeColor = () => {
-    if (trustScore >= 90) return '#4CAF50';
-    if (trustScore >= 75) return '#FF9800';
-    if (trustScore >= 60) return '#FFC107';
-    return '#FF5722';
+export default function TrustBadge({
+                                     trustScore,
+                                     verificationLevel,
+                                     isVerified,
+                                     size = 'medium',
+                                     showLabel = true
+                                   }: TrustBadgeProps) {
+  const getTrustColor = () => {
+    if (trustScore >= 95) return '#4CAF50'; // Excellent
+    if (trustScore >= 85) return '#8BC34A'; // Very Good
+    if (trustScore >= 75) return '#FFC107'; // Good
+    if (trustScore >= 60) return '#FF9800'; // Fair
+    return '#FF5722'; // Poor
+  };
+
+  const getTrustLevel = () => {
+    if (trustScore >= 95) return 'Excellent';
+    if (trustScore >= 85) return 'Très bon';
+    if (trustScore >= 75) return 'Bon';
+    if (trustScore >= 60) return 'Correct';
+    return 'À améliorer';
   };
 
   const getVerificationIcon = () => {
+    const iconSize = size === 'small' ? 12 : size === 'medium' ? 16 : 20;
+
     switch (verificationLevel) {
       case 'community':
-        return <Star size={16} color="#FFD700" fill="#FFD700" />;
+        return <Crown size={iconSize} color="#FFD700" fill="#FFD700" />;
       case 'enhanced':
-        return <Shield size={16} color="#4CAF50" />;
+        return <Award size={iconSize} color="#9C27B0" />;
       case 'government':
-        return <CheckCircle size={16} color="#2196F3" />;
+        return <CheckCircle size={iconSize} color="#2196F3" />;
       default:
-        return <Shield size={16} color="#666" />;
+        return <Shield size={iconSize} color="#666" />;
     }
   };
 
   const getVerificationText = () => {
     switch (verificationLevel) {
       case 'community':
-        return 'Communauté';
+        return 'Validé Communauté';
       case 'enhanced':
-        return 'Renforcée';
+        return 'Vérification Renforcée';
       case 'government':
-        return 'Gouvernement';
+        return 'Vérifié Gouvernement';
       default:
-        return 'Basique';
+        return 'Vérification Basique';
+    }
+  };
+
+  const getVerificationColor = () => {
+    switch (verificationLevel) {
+      case 'community':
+        return '#FFD700';
+      case 'enhanced':
+        return '#9C27B0';
+      case 'government':
+        return '#2196F3';
+      default:
+        return '#666';
     }
   };
 
   const sizeStyles = {
-    small: { padding: 4, fontSize: 10 },
-    medium: { padding: 8, fontSize: 12 },
-    large: { padding: 12, fontSize: 14 },
+    small: {
+      trustBadgeSize: 32,
+      fontSize: 10,
+      verificationPadding: 4,
+      verificationFontSize: 9,
+      spacing: 4
+    },
+    medium: {
+      trustBadgeSize: 40,
+      fontSize: 12,
+      verificationPadding: 6,
+      verificationFontSize: 10,
+      spacing: 6
+    },
+    large: {
+      trustBadgeSize: 48,
+      fontSize: 14,
+      verificationPadding: 8,
+      verificationFontSize: 12,
+      spacing: 8
+    },
   };
+
+  const currentSize = sizeStyles[size];
 
   return (
     <View style={styles.container}>
-      <View style={[
-        styles.trustBadge,
-        { backgroundColor: getBadgeColor() },
-        { padding: sizeStyles[size].padding }
-      ]}>
-        <Text style={[
-          styles.trustScore,
-          { fontSize: sizeStyles[size].fontSize }
+      {/* Trust Score Badge */}
+      <View style={styles.trustBadgeContainer}>
+        <View style={[
+          styles.trustBadge,
+          {
+            backgroundColor: getTrustColor(),
+            width: currentSize.trustBadgeSize,
+            height: currentSize.trustBadgeSize,
+            borderRadius: currentSize.trustBadgeSize / 2
+          }
         ]}>
-          {trustScore}%
-        </Text>
+          <Text style={[
+            styles.trustScore,
+            { fontSize: currentSize.fontSize }
+          ]}>
+            {trustScore}%
+          </Text>
+        </View>
+
+        {showLabel && size !== 'small' && (
+          <Text style={[
+            styles.trustLabel,
+            {
+              fontSize: currentSize.verificationFontSize,
+              marginTop: 2
+            }
+          ]}>
+            {getTrustLevel()}
+          </Text>
+        )}
       </View>
-      
+
+      {/* Verification Badge */}
       {isVerified && (
         <View style={[
           styles.verificationBadge,
-          { padding: sizeStyles[size].padding }
+          {
+            paddingHorizontal: currentSize.verificationPadding,
+            paddingVertical: currentSize.verificationPadding / 2,
+            marginLeft: currentSize.spacing,
+            backgroundColor: `${getVerificationColor()}15`,
+            borderColor: `${getVerificationColor()}30`
+          }
         ]}>
-          {getVerificationIcon()}
-          <Text style={[
-            styles.verificationText,
-            { fontSize: sizeStyles[size].fontSize }
-          ]}>
-            {getVerificationText()}
-          </Text>
+          <View style={styles.verificationContent}>
+            {getVerificationIcon()}
+            {size !== 'small' && (
+              <Text style={[
+                styles.verificationText,
+                {
+                  fontSize: currentSize.verificationFontSize,
+                  color: getVerificationColor(),
+                  marginLeft: 4
+                }
+              ]}>
+                {size === 'large' ? getVerificationText() : getVerificationText().split(' ')[0]}
+              </Text>
+            )}
+          </View>
         </View>
       )}
     </View>
@@ -92,26 +172,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  trustBadgeContainer: {
+    alignItems: 'center',
+  },
   trustBadge: {
-    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   trustScore: {
     fontFamily: 'Inter-Bold',
     color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  trustLabel: {
+    fontFamily: 'Inter-Medium',
+    color: '#666',
+    textAlign: 'center',
   },
   verificationBadge: {
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verificationContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
-    paddingHorizontal: 8,
   },
   verificationText: {
     fontFamily: 'Inter-Medium',
-    color: '#333',
-    marginLeft: 4,
   },
 });

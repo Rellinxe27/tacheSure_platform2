@@ -1,8 +1,8 @@
-// app/(tabs)/index.tsx - Enhanced with comprehensive role-based sections
+// app/(tabs)/index.tsx - Updated with verification integration
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Search, Shield, Star, MapPin, Clock, TriangleAlert as AlertTriangle, TrendingUp, Award, Zap, Briefcase, Calendar, DollarSign, Users, CheckCircle, Eye, Heart, MessageCircle, Bell, Target, BarChart3, Wallet, Settings } from 'lucide-react-native';
+import { Search, Shield, Star, MapPin, Clock, TriangleAlert as AlertTriangle, TrendingUp, Award, Zap, Briefcase, Calendar, DollarSign, CheckCircle } from 'lucide-react-native';
 import TrustBadge from '@/components/TrustBadge';
 import SafetyButton from '@/components/SafetyButton';
 import { useAuth } from '@/app/contexts/AuthContext';
@@ -11,44 +11,24 @@ import { useTasks } from '@/hooks/useTasks';
 import { useServices } from '@/hooks/useServices';
 import { useCategories } from '@/hooks/useCategories';
 import { useNotifications } from '@/hooks/useNotifications';
-import React, { useEffect, useState } from 'react';
+import { useVerification } from '@/hooks/useVerification';
+import { useEffect, useState } from 'react';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const { categories } = useCategories();
   const { unreadCount } = useNotifications();
+  const { stats: verificationStats, getRequiredSteps, loading: verificationLoading } = useVerification();
   const [recentTasks, setRecentTasks] = useState([]);
   const [featuredProviders, setFeaturedProviders] = useState([]);
   const [platformStats, setPlatformStats] = useState({
-    totalTasks: 1247,
+    totalTasks: 0,
     activePlatform: '24/7',
     safetyScore: 98.5,
     averageResponse: '12 min',
-    verifiedProviders: 89,
+    verifiedProviders: 0,
     successRate: 96.8
-  });
-
-  // Client-specific data
-  const [clientStats, setClientStats] = useState({
-    totalTasksPosted: 8,
-    completedTasks: 6,
-    averageRating: 4.7,
-    totalSpent: 45000,
-    activeTasks: 2,
-    favoriteProviders: 3
-  });
-
-  // Provider-specific data
-  const [providerStats, setProviderStats] = useState({
-    totalEarnings: 125000,
-    thisMonthEarnings: 28000,
-    completedJobs: 34,
-    averageRating: 4.8,
-    activeRequests: 12,
-    responseRate: 95,
-    upcomingTasks: 3,
-    repeatClients: 18
   });
 
   // Fetch recent urgent tasks
@@ -57,7 +37,7 @@ export default function HomeScreen() {
     limit: 10
   });
 
-  // Filter to show active urgent tasks
+  // Filter to show active urgent tasks (not completed/cancelled)
   const urgentTasks = allUrgentTasks.filter(task =>
     ['posted', 'applications', 'selected'].includes(task.status)
   ).slice(0, 5);
@@ -66,29 +46,30 @@ export default function HomeScreen() {
   const { services: featuredServices, loading: servicesLoading } = useServices();
 
   useEffect(() => {
-    const fetchData = async () => {
-      // In real app, fetch actual user stats
-      if (profile?.role === 'client') {
-        // Fetch client-specific data
-      } else if (profile?.role === 'provider') {
-        // Fetch provider-specific data
-      }
+    const fetchPlatformStats = async () => {
+      setPlatformStats({
+        totalTasks: 1247,
+        activePlatform: '24/7',
+        safetyScore: 98.5,
+        averageResponse: '12 min',
+        verifiedProviders: 89,
+        successRate: 96.8
+      });
     };
-    fetchData();
-  }, [profile]);
+
+    fetchPlatformStats();
+  }, []);
 
   const clientQuickActions = [
     { id: 'emergency', title: 'Centre d\'urgence', icon: AlertTriangle, color: '#FF5722', route: '/emergency-center' },
-    { id: 'post_task', title: 'Poster une tâche', icon: Zap, color: '#FF9800', route: '/post-task' },
-    { id: 'my_tasks', title: 'Mes tâches', icon: Briefcase, color: '#2196F3', route: '/my-tasks' },
-    { id: 'favorites', title: 'Favoris', icon: Heart, color: '#E91E63', route: '/favorites' }
+    { id: 'advanced_search', title: 'Recherche avancée', icon: Search, color: '#2196F3', route: '/advanced-search' },
+    { id: 'post_urgent', title: 'Tâche urgente', icon: Zap, color: '#FF9800', route: '/post-task' }
   ];
 
   const providerQuickActions = [
     { id: 'task_requests', title: 'Nouvelles demandes', icon: Briefcase, color: '#FF7A00', route: '/task-requests' },
-    { id: 'calendar', title: 'Planning', icon: Calendar, color: '#4CAF50', route: '/availability-calendar' },
-    { id: 'earnings', title: 'Revenus', icon: DollarSign, color: '#2196F3', route: '/earnings' },
-    { id: 'profile', title: 'Mon profil', icon: Users, color: '#9C27B0', route: '/provider-profile' }
+    { id: 'calendar', title: 'Mon planning', icon: Calendar, color: '#4CAF50', route: '/availability-calendar' },
+    { id: 'earnings', title: 'Mes revenus', icon: DollarSign, color: '#2196F3', route: '/earnings' }
   ];
 
   const getGreeting = () => {
@@ -98,37 +79,35 @@ export default function HomeScreen() {
     return 'Bonsoir';
   };
 
-  const renderStatsCard = (title: string, value: string, subtitle: string, icon: any, color: string) => (
-    <View style={[styles.statsCard, { borderLeftColor: color }]}>
-      <View style={styles.statsCardContent}>
-        <View style={styles.statsTextContainer}>
-          <Text style={styles.statsValue}>{value}</Text>
-          <Text style={styles.statsTitle}>{title}</Text>
-          <Text style={styles.statsSubtitle}>{subtitle}</Text>
-        </View>
-        <View style={[styles.statsIcon, { backgroundColor: color }]}>
-          {React.createElement(icon, { size: 20, color: '#FFFFFF' })}
-        </View>
-      </View>
-    </View>
-  );
+  const getVerificationStatusMessage = () => {
+    if (verificationLoading) return null;
 
-  const renderPerformanceMetric = (label: string, value: string, trend?: 'up' | 'down', trendValue?: string) => (
-    <View style={styles.performanceMetric}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <View style={styles.metricValueContainer}>
-        <Text style={styles.metricValue}>{value}</Text>
-        {trend && trendValue && (
-          <View style={[styles.trendContainer, { backgroundColor: trend === 'up' ? '#E8F5E8' : '#FFE8E8' }]}>
-            <TrendingUp size={12} color={trend === 'up' ? '#4CAF50' : '#FF5722'} />
-            <Text style={[styles.trendText, { color: trend === 'up' ? '#4CAF50' : '#FF5722' }]}>
-              {trendValue}
-            </Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
+    const requiredSteps = getRequiredSteps();
+    if (requiredSteps.length > 0) {
+      return {
+        type: 'warning',
+        title: 'Vérification incomplète',
+        message: `${requiredSteps.length} étape(s) requise(s) pour être pleinement vérifié`,
+        action: () => router.push('/verification-status')
+      };
+    }
+
+    if (verificationStats.trustScore >= 80) {
+      return {
+        type: 'success',
+        title: 'Profil vérifié',
+        message: `Score de confiance: ${verificationStats.trustScore}%`,
+        action: () => router.push('/verification-status')
+      };
+    }
+
+    return {
+      type: 'info',
+      title: 'Améliorez votre profil',
+      message: 'Ajoutez plus de vérifications pour augmenter votre score',
+      action: () => router.push('/verification-status')
+    };
+  };
 
   const renderCategoryCard = (category: any, index: number) => (
     <TouchableOpacity
@@ -207,6 +186,8 @@ export default function HomeScreen() {
     return `${Math.floor(diffInMinutes / 1440)} j`;
   };
 
+  const verificationMessage = getVerificationStatusMessage();
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <LinearGradient
@@ -221,19 +202,37 @@ export default function HomeScreen() {
               </Text>
               <Text style={styles.location}>📍 Abidjan, Côte d'Ivoire</Text>
               {unreadCount > 0 && (
-                <TouchableOpacity
-                  style={styles.notificationBadge}
-                  onPress={() => router.push('/notifications')}
-                >
-                  <Bell size={12} color="#FFFFFF" />
+                <View style={styles.notificationBadge}>
                   <Text style={styles.notificationText}>
-                    {unreadCount} notification{unreadCount > 1 ? 's' : ''}
+                    {unreadCount} nouvelle{unreadCount > 1 ? 's' : ''} notification{unreadCount > 1 ? 's' : ''}
                   </Text>
-                </TouchableOpacity>
+                </View>
               )}
             </View>
             <SafetyButton />
           </View>
+
+          {/* Verification Status Alert */}
+          {verificationMessage && (
+            <TouchableOpacity
+              style={[
+                styles.verificationAlert,
+                { backgroundColor: verificationMessage.type === 'success' ? 'rgba(76, 175, 80, 0.2)' :
+                    verificationMessage.type === 'warning' ? 'rgba(255, 152, 0, 0.2)' : 'rgba(33, 150, 243, 0.2)' }
+              ]}
+              onPress={verificationMessage.action}
+            >
+              <View style={styles.verificationContent}>
+                {verificationMessage.type === 'success' && <CheckCircle size={16} color="#4CAF50" />}
+                {verificationMessage.type === 'warning' && <AlertTriangle size={16} color="#FF9800" />}
+                {verificationMessage.type === 'info' && <Shield size={16} color="#2196F3" />}
+                <View style={styles.verificationTextContainer}>
+                  <Text style={styles.verificationTitle}>{verificationMessage.title}</Text>
+                  <Text style={styles.verificationMessage}>{verificationMessage.message}</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          )}
 
           {/* Search bar - Only for clients */}
           <RoleBasedAccess allowedRoles={['client']}>
@@ -246,29 +245,29 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </RoleBasedAccess>
 
-          {/* Provider stats header */}
+          {/* Provider stats */}
           <RoleBasedAccess allowedRoles={['provider']}>
             <View style={styles.providerStatsRow}>
-              <TouchableOpacity style={styles.statItem} onPress={() => router.push('/task-requests')}>
-                <Text style={styles.statValue}>{providerStats.activeRequests}</Text>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>12</Text>
                 <Text style={styles.statLabel}>Demandes</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.statItem} onPress={() => router.push('/my-tasks')}>
-                <Text style={styles.statValue}>{providerStats.upcomingTasks}</Text>
-                <Text style={styles.statLabel}>À venir</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.statItem} onPress={() => router.push('/earnings')}>
-                <Text style={styles.statValue}>{providerStats.averageRating}</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>8</Text>
+                <Text style={styles.statLabel}>Actives</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>4.8</Text>
                 <Text style={styles.statLabel}>Note</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.statItem} onPress={() => router.push('/earnings')}>
-                <Text style={styles.statValue}>{(providerStats.thisMonthEarnings / 1000).toFixed(0)}k</Text>
-                <Text style={styles.statLabel}>Ce mois</Text>
-              </TouchableOpacity>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{verificationStats.trustScore}%</Text>
+                <Text style={styles.statLabel}>Confiance</Text>
+              </View>
             </View>
           </RoleBasedAccess>
 
-          {/* Client stats header */}
+          {/* Platform stats - Only for clients */}
           <RoleBasedAccess allowedRoles={['client']}>
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
@@ -276,16 +275,16 @@ export default function HomeScreen() {
                 <Text style={styles.statLabel}>Sécurité</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{clientStats.activeTasks}</Text>
-                <Text style={styles.statLabel}>Actives</Text>
+                <Text style={styles.statValue}>{platformStats.totalTasks}</Text>
+                <Text style={styles.statLabel}>Tâches actives</Text>
               </View>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>{platformStats.averageResponse}</Text>
-                <Text style={styles.statLabel}>Réponse</Text>
+                <Text style={styles.statLabel}>Réponse moy.</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{clientStats.averageRating}</Text>
-                <Text style={styles.statLabel}>Ma note</Text>
+                <Text style={styles.statValue}>{platformStats.successRate}%</Text>
+                <Text style={styles.statLabel}>Succès</Text>
               </View>
             </View>
           </RoleBasedAccess>
@@ -293,7 +292,6 @@ export default function HomeScreen() {
       </LinearGradient>
 
       <View style={styles.content}>
-        {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
           <Text style={styles.sectionTitle}>Actions rapides</Text>
           <View style={styles.quickActionsGrid}>
@@ -333,49 +331,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Client Performance Dashboard */}
-        <RoleBasedAccess allowedRoles={['client']}>
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Mon activité</Text>
-              <TouchableOpacity onPress={() => router.push('/client-dashboard')}>
-                <BarChart3 size={20} color="#FF7A00" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.statsGrid}>
-              {renderStatsCard('Tâches postées', clientStats.totalTasksPosted.toString(), 'Total', Briefcase, '#2196F3')}
-              {renderStatsCard('Terminées', clientStats.completedTasks.toString(), `${Math.round((clientStats.completedTasks / clientStats.totalTasksPosted) * 100)}% succès`, CheckCircle, '#4CAF50')}
-              {renderStatsCard('Dépensé', `${(clientStats.totalSpent / 1000).toFixed(0)}k FCFA`, 'Total', Wallet, '#FF9800')}
-              {renderStatsCard('Favoris', clientStats.favoriteProviders.toString(), 'Prestataires', Heart, '#E91E63')}
-            </View>
-          </View>
-        </RoleBasedAccess>
-
-        {/* Provider Performance Dashboard */}
-        <RoleBasedAccess allowedRoles={['provider']}>
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Mes performances</Text>
-              <TouchableOpacity onPress={() => router.push('/provider-dashboard')}>
-                <TrendingUp size={20} color="#4CAF50" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.performanceContainer}>
-              {renderPerformanceMetric('Revenus ce mois', `${(providerStats.thisMonthEarnings / 1000).toFixed(0)}k FCFA`, 'up', '+12%')}
-              {renderPerformanceMetric('Taux de réponse', `${providerStats.responseRate}%`, 'up', '+5%')}
-              {renderPerformanceMetric('Note moyenne', `${providerStats.averageRating}/5`, 'up', '+0.2')}
-              {renderPerformanceMetric('Clients fidèles', `${providerStats.repeatClients}`, 'up', '+3')}
-            </View>
-
-            <View style={styles.statsGrid}>
-              {renderStatsCard('Revenus totaux', `${(providerStats.totalEarnings / 1000).toFixed(0)}k`, 'FCFA', DollarSign, '#4CAF50')}
-              {renderStatsCard('Tâches terminées', providerStats.completedJobs.toString(), 'Total', CheckCircle, '#2196F3')}
-              {renderStatsCard('À venir', providerStats.upcomingTasks.toString(), 'Cette semaine', Calendar, '#FF9800')}
-              {renderStatsCard('Note globale', providerStats.averageRating.toString(), '/5 étoiles', Star, '#FFD700')}
-            </View>
-          </View>
-        </RoleBasedAccess>
-
         {/* Categories - Only for clients */}
         <RoleBasedAccess allowedRoles={['client']}>
           {categories.length > 0 && (
@@ -393,7 +348,6 @@ export default function HomeScreen() {
           )}
         </RoleBasedAccess>
 
-        {/* Urgent Tasks / Opportunities */}
         {urgentTasks.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -410,61 +364,47 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Client Recommendations */}
+        {/* Client-specific sections */}
         <RoleBasedAccess allowedRoles={['client']}>
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recommandations</Text>
-              <TouchableOpacity onPress={() => router.push('/recommendations')}>
+              <Text style={styles.sectionTitle}>Prestataires recommandés</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/search')}>
                 <Award size={20} color="#FFD700" />
               </TouchableOpacity>
             </View>
-            <View style={styles.recommendationCard}>
-              <View style={styles.recommendationHeader}>
-                <Star size={16} color="#FFD700" fill="#FFD700" />
-                <Text style={styles.recommendationTitle}>Prestataires recommandés</Text>
-              </View>
-              <Text style={styles.recommendationText}>
-                3 nouveaux prestataires correspondent à vos préférences dans votre zone
-              </Text>
-              <TouchableOpacity
-                style={styles.recommendationButton}
-                onPress={() => router.push('/recommended-providers')}
-              >
-                <Text style={styles.recommendationButtonText}>Voir les recommandations</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.placeholderText}>
+              Prestataires recommandés basés sur vos préférences - En cours de développement
+            </Text>
           </View>
         </RoleBasedAccess>
 
-        {/* Provider Opportunities */}
+        {/* Provider-specific sections */}
         <RoleBasedAccess allowedRoles={['provider']}>
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Opportunités</Text>
-              <TouchableOpacity onPress={() => router.push('/opportunities')}>
-                <Target size={20} color="#FF7A00" />
+              <Text style={styles.sectionTitle}>Mes performances</Text>
+              <TouchableOpacity onPress={() => router.push('/provider-dashboard')}>
+                <TrendingUp size={20} color="#4CAF50" />
               </TouchableOpacity>
             </View>
-            <View style={styles.opportunityCard}>
-              <View style={styles.opportunityHeader}>
-                <Zap size={16} color="#FF7A00" />
-                <Text style={styles.opportunityTitle}>Nouvelles demandes dans votre zone</Text>
+            <View style={styles.performanceCard}>
+              <View style={styles.performanceItem}>
+                <Text style={styles.performanceLabel}>Score de confiance</Text>
+                <Text style={styles.performanceValue}>{verificationStats.trustScore}%</Text>
               </View>
-              <Text style={styles.opportunityText}>
-                8 nouvelles demandes correspondent à vos services
-              </Text>
-              <TouchableOpacity
-                style={styles.opportunityButton}
-                onPress={() => router.push('/task-requests')}
-              >
-                <Text style={styles.opportunityButtonText}>Voir les demandes</Text>
-              </TouchableOpacity>
+              <View style={styles.performanceItem}>
+                <Text style={styles.performanceLabel}>Niveau de vérification</Text>
+                <Text style={styles.performanceValue}>Niveau {verificationStats.currentLevel}</Text>
+              </View>
+              <View style={styles.performanceItem}>
+                <Text style={styles.performanceLabel}>Étapes complétées</Text>
+                <Text style={styles.performanceValue}>{verificationStats.completedSteps}/{verificationStats.totalSteps}</Text>
+              </View>
             </View>
           </View>
         </RoleBasedAccess>
 
-        {/* Safety Section */}
         <View style={styles.safetySection}>
           <View style={styles.safetyHeader}>
             <Shield size={24} color="#4CAF50" />
@@ -480,7 +420,7 @@ export default function HomeScreen() {
             </View>
             <View style={styles.safetyFeature}>
               <Text style={styles.safetyFeatureIcon}>📍</Text>
-              <Text style={styles.safetyFeatureText}>Suivi GPS</Text>
+              <Text style={styles.safetyFeatureText}>Suivi GPS en temps réel</Text>
             </View>
             <View style={styles.safetyFeature}>
               <Text style={styles.safetyFeatureIcon}>🆘</Text>
@@ -488,7 +428,7 @@ export default function HomeScreen() {
             </View>
             <View style={styles.safetyFeature}>
               <Text style={styles.safetyFeatureIcon}>🛡️</Text>
-              <Text style={styles.safetyFeatureText}>Vérification ID</Text>
+              <Text style={styles.safetyFeatureText}>Vérification d'identité</Text>
             </View>
           </View>
 
@@ -537,8 +477,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   notificationBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
     paddingHorizontal: 8,
@@ -549,7 +487,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Inter-Medium',
     color: '#FFFFFF',
-    marginLeft: 4,
+  },
+  verificationAlert: {
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  verificationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  verificationTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  verificationTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+  },
+  verificationMessage: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: '#FFFFFF',
+    opacity: 0.9,
+    marginTop: 2,
   },
   searchContainer: {
     flexDirection: 'row',
@@ -608,15 +570,14 @@ const styles = StyleSheet.create({
   quickActionsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    flexWrap: 'wrap',
   },
   quickActionCard: {
-    width: '23%',
+    flex: 1,
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
+    padding: 16,
+    marginHorizontal: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -624,15 +585,15 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   quickActionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   quickActionText: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: 'Inter-Medium',
     color: '#333',
     textAlign: 'center',
@@ -650,102 +611,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontFamily: 'Inter-SemiBold',
     color: '#333',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  statsCard: {
-    width: '48%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statsCardContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statsTextContainer: {
-    flex: 1,
-  },
-  statsValue: {
-    fontSize: 20,
-    fontFamily: 'Inter-Bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  statsTitle: {
-    fontSize: 12,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-    marginBottom: 2,
-  },
-  statsSubtitle: {
-    fontSize: 10,
-    fontFamily: 'Inter-Regular',
-    color: '#999',
-  },
-  statsIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  performanceContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  performanceMetric: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
-  },
-  metricLabel: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#666',
-  },
-  metricValueContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  metricValue: {
-    fontSize: 16,
-    fontFamily: 'Inter-Bold',
-    color: '#333',
-    marginRight: 8,
-  },
-  trendContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  trendText: {
-    fontSize: 10,
-    fontFamily: 'Inter-Bold',
-    marginLeft: 2,
   },
   categoriesGrid: {
     flexDirection: 'row',
@@ -861,90 +726,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
   },
-  recommendationCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#FFD700',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  recommendationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  recommendationTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-    marginLeft: 8,
-  },
-  recommendationText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  recommendationButton: {
-    backgroundColor: '#FFD700',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  recommendationButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-  },
-  opportunityCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#FF7A00',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  opportunityHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  opportunityTitle: {
-    fontSize: 16,
-    fontFamily: 'Inter-SemiBold',
-    color: '#333',
-    marginLeft: 8,
-  },
-  opportunityText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  opportunityButton: {
-    backgroundColor: '#FF7A00',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  opportunityButtonText: {
-    fontSize: 14,
-    fontFamily: 'Inter-SemiBold',
-    color: '#FFFFFF',
-  },
   placeholderText: {
     fontSize: 14,
     fontFamily: 'Inter-Regular',
@@ -952,6 +733,34 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontStyle: 'italic',
     paddingVertical: 20,
+  },
+  performanceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  performanceItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  performanceLabel: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+  },
+  performanceValue: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#333',
   },
   safetySection: {
     backgroundColor: '#E8F5E8',

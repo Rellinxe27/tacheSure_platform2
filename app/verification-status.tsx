@@ -1,309 +1,130 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Shield, CheckCircle, Clock, XCircle, Camera, Upload, User, FileText, Award, AlertTriangle } from 'lucide-react-native';
-import { useAuth } from '@/app/contexts/AuthContext';
+import { ArrowLeft, Shield, CheckCircle, Clock, XCircle, Camera, Upload, User, FileText, Award, Phone, Mail, RefreshCw } from 'lucide-react-native';
 import { useVerification } from '@/hooks/useVerification';
-import { supabase } from '@/lib/supabase';
-
-interface VerificationStep {
-  id: string;
-  title: string;
-  description: string;
-  status: 'pending' | 'submitted' | 'approved' | 'rejected';
-  level: number;
-  required: boolean;
-  documentType: string;
-  rejectionReason?: string;
-  expiresAt?: string;
-}
+import { useAuth } from '@/app/contexts/AuthContext';
 
 export default function VerificationStatusScreen() {
   const router = useRouter();
-  const { user, profile, updateProfile } = useAuth();
-  const { documents, loading: documentsLoading, uploadDocument, getVerificationProgress } = useVerification();
-  const [verificationSteps, setVerificationSteps] = useState<VerificationStep[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { profile, loading: authLoading } = useAuth();
+  const {
+    verificationSteps,
+    stats,
+    loading: verificationLoading,
+    uploadDocument,
+    requestPhoneVerification,
+    requestEmailVerification,
+    refetch
+  } = useVerification();
   const [refreshing, setRefreshing] = useState(false);
 
-  const stepDefinitions = [
-    {
-      id: 'phone',
-      title: 'Numéro de téléphone',
-      description: 'Vérification par SMS',
-      level: 1,
-      required: true,
-      documentType: 'phone_verification'
-    },
-    {
-      id: 'email',
-      title: 'Adresse email',
-      description: 'Confirmation par email',
-      level: 1,
-      required: true,
-      documentType: 'email_verification'
-    },
-    {
-      id: 'identity',
-      title: 'Carte d\'identité (CNI)',
-      description: 'Scan et reconnaissance faciale',
-      level: 2,
-      required: true,
-      documentType: 'cni'
-    },
-    {
-      id: 'address',
-      title: 'Justificatif de domicile',
-      description: 'Facture récente (électricité/eau)',
-      level: 2,
-      required: true,
-      documentType: 'address_proof'
-    },
-    {
-      id: 'background',
-      title: 'Casier judiciaire',
-      description: 'Vérification antécédents',
-      level: 3,
-      required: false,
-      documentType: 'criminal_record'
-    },
-    {
-      id: 'references',
-      title: 'Références professionnelles',
-      description: '2-3 contacts vérifiables',
-      level: 3,
-      required: false,
-      documentType: 'professional_references'
-    },
-    {
-      id: 'community',
-      title: 'Validation communautaire',
-      description: 'Recommandation locale',
-      level: 4,
-      required: false,
-      documentType: 'community_validation'
-    }
-  ];
+  const loading = authLoading || verificationLoading;
 
-  useEffect(() => {
-    loadVerificationStatus();
-  }, [documents, profile]);
-
-  const loadVerificationStatus = async () => {
-    try {
-      setLoading(true);
-
-      // Map documents to verification steps
-      const steps = stepDefinitions.map(stepDef => {
-        // Check basic verifications from profile
-        if (stepDef.documentType === 'phone_verification') {
-          return {
-            ...stepDef,
-            status: profile?.phone ? 'approved' : 'pending'
-          } as VerificationStep;
-        }
-
-        if (stepDef.documentType === 'email_verification') {
-          return {
-            ...stepDef,
-            status: profile?.email ? 'approved' : 'pending'
-          } as VerificationStep;
-        }
-
-        // Check document verification status
-        const doc = documents.find(d => d.document_type === stepDef.documentType);
-
-        return {
-          ...stepDef,
-          status: doc ? doc.verification_status : 'pending',
-          rejectionReason: doc?.rejection_reason || undefined,
-          expiresAt: doc?.expires_at || undefined
-        } as VerificationStep;
-      });
-
-      setVerificationSteps(steps);
-    } catch (error) {
-      console.error('Error loading verification status:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const refreshVerificationStatus = async () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    await loadVerificationStatus();
+    await refetch();
     setRefreshing(false);
-  };
-
-  const calculateTrustScore = (): number => {
-    const approved = verificationSteps.filter(s => s.status === 'approved');
-    const levelWeights = { 1: 20, 2: 25, 3: 30, 4: 40 };
-    const score = approved.reduce((total, step) =>
-      total + (levelWeights[step.level as keyof typeof levelWeights] || 0), 0
-    );
-    return Math.min(score, 100);
-  };
-
-  const updateTrustScore = async (newScore: number) => {
-    if (!user) return;
-
-    const { error } = await updateProfile({
-      trust_score: newScore,
-      verification_level: getVerificationLevel(newScore)
-    });
-
-    if (error) {
-      console.error('Error updating trust score:', error);
-    }
-  };
-
-  const getVerificationLevel = (score: number): 'basic' | 'government' | 'enhanced' | 'community' => {
-    if (score >= 90) return 'community';
-    if (score >= 70) return 'enhanced';
-    if (score >= 40) return 'government';
-    return 'basic';
   };
 
   const handleVerificationAction = async (stepId: string) => {
     const step = verificationSteps.find(s => s.id === stepId);
     if (!step) return;
 
-    if (step.status === 'pending' || step.status === 'rejected') {
-      switch (step.id) {
-        case 'phone':
-          await verifyPhone();
-          break;
-        case 'email':
-          await verifyEmail();
-          break;
-        case 'identity':
-          router.push('/document-scanner');
-          break;
-        case 'background':
-          router.push('/background-check');
-          break;
-        case 'references':
-          router.push('/references-form');
-          break;
-        case 'address':
-          await uploadAddressProof();
-          break;
-        case 'community':
-          await requestCommunityValidation();
-          break;
+    if (step.status === 'pending') {
+      if (step.id === 'phone') {
+        router.push('/phone-verification');
+      } else if (step.id === 'email') {
+        const result = await requestEmailVerification();
+        if (result.error) {
+          Alert.alert('Erreur', result.error);
+        } else {
+          Alert.alert('Email envoyé', 'Vérifiez votre boîte de réception');
+        }
+      } else if (step.id === 'identity') {
+        router.push('/document-scanner?type=cni');
+      } else if (step.id === 'background') {
+        router.push('/background-check');
+      } else if (step.id === 'references') {
+        router.push('/references-form');
+      } else if (step.id === 'address') {
+        router.push('/document-scanner?type=address');
+      } else if (step.id === 'community') {
+        router.push('/community-validation');
+      } else {
+        startVerification(stepId);
       }
+    } else if (step.status === 'rejected') {
+      resubmitVerification(stepId);
     }
   };
 
-  const verifyPhone = async () => {
+  const handleDocumentUpload = (documentType: string) => {
     Alert.alert(
-      'Vérification téléphone',
-      'Un SMS sera envoyé à votre numéro pour vérification.',
+      'Télécharger document',
+      `Sélectionnez votre ${getDocumentTypeName(documentType)}`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Prendre photo', onPress: () => simulateUpload(documentType) },
+        { text: 'Galerie', onPress: () => simulateUpload(documentType) }
+      ]
+    );
+  };
+
+  const simulateUpload = async (documentType: string) => {
+    // Simulate document upload
+    const mockUrl = `https://example.com/documents/${Date.now()}.jpg`;
+    const result = await uploadDocument({
+      document_type: documentType,
+      document_url: mockUrl,
+      verification_data: {
+        uploaded_at: new Date().toISOString(),
+        file_size: 1024 * 500, // 500KB
+        mime_type: 'image/jpeg'
+      }
+    });
+
+    if (result.error) {
+      Alert.alert('Erreur', result.error);
+    } else {
+      Alert.alert('Succès', 'Document téléchargé avec succès');
+    }
+  };
+
+  const getDocumentTypeName = (type: string) => {
+    const names = {
+      address: 'justificatif de domicile',
+      background: 'casier judiciaire',
+      identity: 'carte d\'identité'
+    };
+    return names[type as keyof typeof names] || type;
+  };
+
+  const startVerification = (stepId: string) => {
+    Alert.alert(
+      'Démarrer la vérification',
+      `Lancer la vérification pour ${verificationSteps.find(s => s.id === stepId)?.title}?`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Envoyer SMS',
-          onPress: async () => {
-            // In production, implement SMS verification
-            // For now, simulate verification
-            const { error } = await uploadDocument({
-              document_type: 'phone_verification',
-              document_url: 'verified',
-              verification_data: { phone: profile?.phone }
-            });
-
-            if (!error) {
-              Alert.alert('Succès', 'Numéro de téléphone vérifié');
-              await refreshVerificationStatus();
-              const newScore = calculateTrustScore();
-              await updateTrustScore(newScore);
-            }
+          text: 'Démarrer',
+          onPress: () => {
+            Alert.alert('Vérification soumise', 'Votre demande est en cours de traitement');
           }
         }
       ]
     );
   };
 
-  const verifyEmail = async () => {
+  const resubmitVerification = (stepId: string) => {
     Alert.alert(
-      'Vérification email',
-      'Un email de confirmation sera envoyé à votre adresse.',
+      'Nouvelle soumission',
+      'Voulez-vous soumettre de nouveaux documents?',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Envoyer email',
-          onPress: async () => {
-            const { error } = await uploadDocument({
-              document_type: 'email_verification',
-              document_url: 'verified',
-              verification_data: { email: profile?.email }
-            });
-
-            if (!error) {
-              Alert.alert('Succès', 'Email vérifié');
-              await refreshVerificationStatus();
-              const newScore = calculateTrustScore();
-              await updateTrustScore(newScore);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const uploadAddressProof = async () => {
-    Alert.alert(
-      'Justificatif de domicile',
-      'Téléchargez une facture récente (électricité, eau, etc.)',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Sélectionner document',
-          onPress: async () => {
-            // In production, implement document picker
-            // For now, simulate upload
-            const { error } = await uploadDocument({
-              document_type: 'address_proof',
-              document_url: 'https://example.com/address-proof.pdf',
-              verification_data: {
-                address: profile?.address,
-                uploadedAt: new Date().toISOString()
-              }
-            });
-
-            if (!error) {
-              Alert.alert('Succès', 'Document soumis pour vérification');
-              await refreshVerificationStatus();
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const requestCommunityValidation = async () => {
-    Alert.alert(
-      'Validation communautaire',
-      'Cette étape nécessite des recommandations de membres vérifiés de votre communauté.',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Demander validation',
-          onPress: async () => {
-            const { error } = await uploadDocument({
-              document_type: 'community_validation',
-              document_url: 'pending',
-              verification_data: {
-                requestedAt: new Date().toISOString(),
-                requiredValidations: 3
-              }
-            });
-
-            if (!error) {
-              Alert.alert('Demande envoyée', 'Votre demande de validation communautaire a été soumise');
-              await refreshVerificationStatus();
-            }
-          }
+          text: 'Resubmit',
+          onPress: () => handleVerificationAction(stepId)
         }
       ]
     );
@@ -338,14 +159,34 @@ export default function VerificationStatusScreen() {
     );
   };
 
-  const currentLevel = Math.max(...verificationSteps.filter(s => s.status === 'approved').map(s => s.level), 0);
-  const trustScore = calculateTrustScore();
+  const getActionIcon = (stepId: string) => {
+    switch (stepId) {
+      case 'phone': return Phone;
+      case 'email': return Mail;
+      case 'identity': return Camera;
+      case 'references': return User;
+      default: return Upload;
+    }
+  };
 
-  if (loading || documentsLoading) {
+  if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF7A00" />
-        <Text style={styles.loadingText}>Chargement du statut de vérification...</Text>
+        <Shield size={40} color="#FF7A00" />
+        <Text style={styles.loadingText}>Chargement des données de vérification...</Text>
+      </View>
+    );
+  }
+
+  // Add check for profile
+  if (!profile) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Shield size={40} color="#FF5722" />
+        <Text style={styles.loadingText}>Erreur: Profil utilisateur non trouvé</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => router.back()}>
+          <Text style={styles.retryButtonText}>Retour</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -357,34 +198,47 @@ export default function VerificationStatusScreen() {
           <ArrowLeft size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Statut de vérification</Text>
-        <TouchableOpacity onPress={refreshVerificationStatus}>
-          <Text style={styles.refreshText}>Actualiser</Text>
+        <TouchableOpacity onPress={handleRefresh}>
+          <RefreshCw size={24} color="#FF7A00" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+      >
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
             <Shield size={32} color="#FF7A00" />
             <View style={styles.statusInfo}>
-              <Text style={styles.trustScore}>{trustScore}% vérifié</Text>
-              <Text style={styles.currentLevel}>Niveau {currentLevel}</Text>
+              <Text style={styles.trustScore}>{stats.trustScore}% vérifié</Text>
+              <Text style={styles.currentLevel}>Niveau {stats.currentLevel}</Text>
             </View>
           </View>
 
           <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${trustScore}%` }]} />
+            <View style={[styles.progressFill, { width: `${stats.trustScore}%` }]} />
           </View>
 
           <Text style={styles.statusDescription}>
-            Plus votre niveau de vérification est élevé, plus vous gagnerez la confiance des clients
+            {stats.completedSteps}/{stats.totalSteps} étapes complétées
           </Text>
+
+          {stats.nextRequiredStep && (
+            <View style={styles.nextStepCard}>
+              <Text style={styles.nextStepTitle}>Prochaine étape requise:</Text>
+              <Text style={styles.nextStepText}>{stats.nextRequiredStep.title}</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.levelsSection}>
           <Text style={styles.sectionTitle}>Niveaux de vérification</Text>
 
-          {[1, 2, 3, 4].map(level => {
+          {(profile?.role === 'provider' ? [1, 2, 3, 4] : [1]).map(level => {
             const levelSteps = verificationSteps.filter(s => s.level === level);
             const levelCompleted = levelSteps.every(s => s.status === 'approved');
 
@@ -400,39 +254,56 @@ export default function VerificationStatusScreen() {
                   {levelCompleted && <CheckCircle size={20} color="#4CAF50" />}
                 </View>
 
-                {levelSteps.map(step => (
-                  <TouchableOpacity
-                    key={step.id}
-                    style={styles.stepItem}
-                    onPress={() => handleVerificationAction(step.id)}
-                    disabled={step.status === 'submitted'}
-                  >
-                    <View style={styles.stepInfo}>
-                      {getStatusIcon(step.status)}
-                      <View style={styles.stepDetails}>
-                        <Text style={styles.stepTitle}>{step.title}</Text>
-                        <Text style={styles.stepDescription}>{step.description}</Text>
-                        {step.rejectionReason && (
-                          <View style={styles.rejectionInfo}>
-                            <AlertTriangle size={12} color="#FF5722" />
-                            <Text style={styles.rejectionText}>{step.rejectionReason}</Text>
-                          </View>
+                {profile?.role === 'client' && level > 1 && (
+                  <View style={styles.providerOnlyBadge}>
+                    <Text style={styles.providerOnlyText}>
+                      Réservé aux prestataires de services
+                    </Text>
+                  </View>
+                )}
+
+                {(profile?.role === 'provider' || level === 1) && levelSteps.map(step => {
+                  const ActionIcon = getActionIcon(step.id);
+                  return (
+                    <TouchableOpacity
+                      key={step.id}
+                      style={styles.stepItem}
+                      onPress={() => handleVerificationAction(step.id)}
+                    >
+                      <View style={styles.stepInfo}>
+                        {getStatusIcon(step.status)}
+                        <View style={styles.stepDetails}>
+                          <Text style={styles.stepTitle}>{step.title}</Text>
+                          <Text style={styles.stepDescription}>{step.description}</Text>
+                          {step.document && step.document.created_at && (
+                            <Text style={styles.documentInfo}>
+                              Téléchargé le {new Date(step.document.created_at).toLocaleDateString()}
+                            </Text>
+                          )}
+                          {step.references && step.references.length > 0 && (
+                            <Text style={styles.documentInfo}>
+                              {step.references.length} référence(s) soumise(s)
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={styles.stepActions}>
+                        <Text style={[
+                          styles.stepStatus,
+                          { color: step.status === 'approved' ? '#4CAF50' :
+                              step.status === 'rejected' ? '#FF5722' : '#FF9800' }
+                        ]}>
+                          {getStatusText(step.status)}
+                        </Text>
+                        {step.required && <Text style={styles.requiredLabel}>Requis</Text>}
+                        {step.status === 'pending' && (
+                          <ActionIcon size={16} color="#FF7A00" />
                         )}
                       </View>
-                    </View>
-
-                    <View style={styles.stepActions}>
-                      <Text style={[
-                        styles.stepStatus,
-                        { color: step.status === 'approved' ? '#4CAF50' :
-                            step.status === 'rejected' ? '#FF5722' : '#FF9800' }
-                      ]}>
-                        {getStatusText(step.status)}
-                      </Text>
-                      {step.required && <Text style={styles.requiredLabel}>Requis</Text>}
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             );
           })}
@@ -486,10 +357,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: 'Inter-Regular',
     color: '#666',
-    marginTop: 12,
+    marginTop: 16,
+  },
+  retryButton: {
+    backgroundColor: '#FF7A00',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -504,11 +387,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontFamily: 'Inter-SemiBold',
     color: '#333',
-  },
-  refreshText: {
-    fontSize: 14,
-    fontFamily: 'Inter-Medium',
-    color: '#FF7A00',
   },
   content: {
     flex: 1,
@@ -560,6 +438,23 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
     lineHeight: 20,
+  },
+  nextStepCard: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 16,
+  },
+  nextStepTitle: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#E65100',
+  },
+  nextStepText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Medium',
+    color: '#FF7A00',
+    marginTop: 4,
   },
   levelsSection: {
     marginBottom: 24,
@@ -631,17 +526,11 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  rejectionInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  rejectionText: {
+  documentInfo: {
     fontSize: 11,
     fontFamily: 'Inter-Regular',
-    color: '#FF5722',
-    marginLeft: 4,
-    flex: 1,
+    color: '#4CAF50',
+    marginTop: 4,
   },
   stepActions: {
     alignItems: 'flex-end',
@@ -685,6 +574,19 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
     marginLeft: 12,
+  },
+  providerOnlyBadge: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  providerOnlyText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#FF9800',
+    textAlign: 'center',
   },
   helpSection: {
     backgroundColor: '#E8F5E8',

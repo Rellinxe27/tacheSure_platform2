@@ -1,41 +1,275 @@
-// hooks/useVerification.ts
+// hooks/useVerification.ts - Enhanced with persistent data
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/lib/database.types';
 import { useAuth } from '@/app/contexts/AuthContext';
 
 type VerificationDocument = Database['public']['Tables']['verification_documents']['Row'];
+type ProfessionalReference = Database['public']['Tables']['professional_references']['Row'];
+
+interface VerificationStep {
+  id: string;
+  title: string;
+  description: string;
+  status: 'pending' | 'submitted' | 'approved' | 'rejected';
+  level: number;
+  required: boolean;
+  document?: VerificationDocument;
+  references?: ProfessionalReference[];
+}
+
+interface VerificationStats {
+  currentLevel: number;
+  trustScore: number;
+  completedSteps: number;
+  totalSteps: number;
+  nextRequiredStep?: VerificationStep;
+}
 
 export const useVerification = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, updateProfile } = useAuth();
   const [documents, setDocuments] = useState<VerificationDocument[]>([]);
+  const [references, setReferences] = useState<ProfessionalReference[]>([]);
+  const [verificationSteps, setVerificationSteps] = useState<VerificationStep[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<VerificationStats>({
+    currentLevel: 1,
+    trustScore: 0,
+    completedSteps: 0,
+    totalSteps: 0
+  });
 
   useEffect(() => {
     if (!user) return;
 
-    const fetchDocuments = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('verification_documents')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+    fetchVerificationData();
 
-        if (error) {
-          console.error('Error fetching verification documents:', error);
-        } else {
-          setDocuments(data || []);
-        }
-      } catch (err) {
-        console.error('Error fetching verification documents:', err);
-      } finally {
-        setLoading(false);
-      }
+    // Real-time subscription for verification updates
+    const channel = supabase
+      .channel(`verification-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'verification_documents',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => fetchVerificationData()
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'professional_references',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => fetchVerificationData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
+  }, [user, profile]); // Added profile as dependency
 
-    fetchDocuments();
-  }, [user]);
+  const fetchVerificationData = async () => {
+    if (!user) return;
+
+    try {
+      setLoading(true);
+
+      // Fetch verification documents
+      const { data: documentsData, error: documentsError } = await supabase
+        .from('verification_documents')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (documentsError) throw documentsError;
+
+      // Fetch professional references
+      const { data: referencesData, error: referencesError } = await supabase
+        .from('professional_references')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (referencesError) throw referencesError;
+
+      setDocuments(documentsData || []);
+      setReferences(referencesData || []);
+
+      // Build verification steps based on user role and current data
+      const steps = buildVerificationSteps(documentsData || [], referencesData || []);
+      setVerificationSteps(steps);
+
+      // Calculate stats
+      const calculatedStats = calculateVerificationStats(steps);
+      setStats(calculatedStats);
+
+      // Update profile if trust score changed and profile exists
+      if (profile && profile.trust_score !== calculatedStats.trustScore) {
+        await updateProfile({
+          trust_score: calculatedStats.trustScore,
+          verification_level: getVerificationLevel(calculatedStats.currentLevel)
+        });
+      }
+
+    } catch (error) {
+      console.error('Error fetching verification data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const buildVerificationSteps = (
+    docs: VerificationDocument[],
+    refs: ProfessionalReference[]
+  ): VerificationStep[] => {
+    const baseSteps = [
+      {
+        id: 'phone',
+        title: 'Numéro de téléphone',
+        description: 'Vérification par SMS',
+        level: 1,
+        required: true
+      },
+      {
+        id: 'email',
+        title: 'Adresse email',
+        description: 'Confirmation par email',
+        level: 1,
+        required: true
+      }
+    ];
+
+    // Add provider-specific steps only if profile exists and user is provider
+    if (profile?.role === 'provider') {
+      baseSteps.push(
+        {
+          id: 'identity',
+          title: 'Carte d\'identité (CNI)',
+          description: 'Scan et reconnaissance faciale',
+          level: 2,
+          required: true
+        },
+        {
+          id: 'address',
+          title: 'Justificatif de domicile',
+          description: 'Facture récente (électricité/eau)',
+          level: 2,
+          required: true
+        },
+        {
+          id: 'background',
+          title: 'Casier judiciaire',
+          description: 'Vérification antécédents',
+          level: 3,
+          required: false
+        },
+        {
+          id: 'references',
+          title: 'Références professionnelles',
+          description: '2-3 contacts vérifiables',
+          level: 3,
+          required: false
+        },
+        {
+          id: 'community',
+          title: 'Validation communautaire',
+          description: 'Recommandation locale',
+          level: 4,
+          required: false
+        }
+      );
+    }
+
+    return baseSteps.map(step => {
+      let status: 'pending' | 'submitted' | 'approved' | 'rejected' = 'pending';
+      let document: VerificationDocument | undefined;
+      let stepReferences: ProfessionalReference[] = [];
+
+      // Check phone verification
+      if (step.id === 'phone') {
+        status = profile?.phone ? 'approved' : 'pending';
+      }
+      // Check email verification
+      else if (step.id === 'email') {
+        status = user?.email_confirmed_at ? 'approved' : 'pending';
+      }
+      // Check documents
+      else if (['identity', 'address', 'background'].includes(step.id)) {
+        const docType = step.id === 'identity' ? 'cni' :
+          step.id === 'address' ? 'address' : 'background';
+        document = docs.find(d => d.document_type === docType);
+        if (document) {
+          status = document.verification_status as any;
+        }
+      }
+      // Check references
+      else if (step.id === 'references') {
+        stepReferences = refs;
+        const approvedRefs = refs.filter(r => r.verification_status === 'approved');
+        if (approvedRefs.length >= 2) {
+          status = 'approved';
+        } else if (refs.length > 0) {
+          status = 'submitted';
+        }
+      }
+      // Community validation
+      else if (step.id === 'community') {
+        const communityDoc = docs.find(d => d.document_type === 'community');
+        if (communityDoc) {
+          status = communityDoc.verification_status as any;
+        }
+      }
+
+      return {
+        ...step,
+        status,
+        document,
+        references: stepReferences
+      };
+    });
+  };
+
+  const calculateVerificationStats = (steps: VerificationStep[]): VerificationStats => {
+    const approvedSteps = steps.filter(s => s.status === 'approved');
+    const maxLevel = Math.max(...approvedSteps.map(s => s.level), 1);
+
+    // Calculate trust score based on completed verifications
+    let trustScore = 0;
+    const scoreWeights = { 1: 20, 2: 25, 3: 30, 4: 40 };
+
+    approvedSteps.forEach(step => {
+      trustScore += scoreWeights[step.level as keyof typeof scoreWeights] || 0;
+    });
+
+    // Find next required step
+    const nextRequiredStep = steps.find(s =>
+      s.required && s.status === 'pending'
+    );
+
+    return {
+      currentLevel: maxLevel,
+      trustScore: Math.min(trustScore, 100),
+      completedSteps: approvedSteps.length,
+      totalSteps: steps.length,
+      nextRequiredStep
+    };
+  };
+
+  const getVerificationLevel = (level: number): Database['public']['Enums']['verification_level'] => {
+    switch (level) {
+      case 1: return 'basic';
+      case 2: return 'government';
+      case 3: return 'enhanced';
+      case 4: return 'community';
+      default: return 'basic';
+    }
+  };
 
   const uploadDocument = async (documentData: {
     document_type: string;
@@ -52,44 +286,130 @@ export const useVerification = () => {
           document_type: documentData.document_type,
           document_url: documentData.document_url,
           verification_data: documentData.verification_data,
-          verification_status: 'pending',
+          verification_status: 'submitted',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         })
         .select()
         .single();
 
-      if (error) {
-        return { error: error.message };
-      }
+      if (error) return { error: error.message };
 
-      setDocuments(prev => [data, ...prev]);
+      await fetchVerificationData();
       return { data };
     } catch (err) {
       return { error: 'Failed to upload document' };
     }
   };
 
-  const getVerificationProgress = () => {
-    const requiredDocs = profile?.role === 'provider'
-      ? ['cni', 'photo', 'address']
-      : ['photo'];
+  const submitReferences = async (referencesData: Array<{
+    reference_name: string;
+    reference_phone: string;
+    reference_email?: string;
+    relationship: string;
+    company?: string;
+    position?: string;
+    years_known?: string;
+  }>) => {
+    if (!user) return { error: 'User not authenticated' };
 
-    const submittedDocs = documents.filter(doc =>
-      requiredDocs.includes(doc.document_type) &&
-      ['approved', 'pending', 'submitted'].includes(doc.verification_status)
+    try {
+      const { data, error } = await supabase
+        .from('professional_references')
+        .insert(
+          referencesData.map(ref => ({
+            user_id: user.id,
+            reference_name: ref.reference_name,
+            reference_phone: ref.reference_phone,
+            reference_email: ref.reference_email,
+            relationship: ref.relationship,
+            company: ref.company,
+            position: ref.position,
+            years_known: ref.years_known,
+            verification_status: 'submitted',
+            created_at: new Date().toISOString()
+          }))
+        )
+        .select();
+
+      if (error) return { error: error.message };
+
+      await fetchVerificationData();
+      return { data };
+    } catch (err) {
+      return { error: 'Failed to submit references' };
+    }
+  };
+
+  const requestPhoneVerification = async (phoneNumber: string) => {
+    if (!user) return { error: 'User not authenticated' };
+
+    try {
+      // Update profile with phone number
+      const { error } = await updateProfile({ phone: phoneNumber });
+      if (error) return { error };
+
+      // In a real app, you'd send SMS verification here
+      // For now, we'll mark as verified after profile update
+      await fetchVerificationData();
+
+      return { success: true };
+    } catch (err) {
+      return { error: 'Failed to verify phone' };
+    }
+  };
+
+  const requestEmailVerification = async () => {
+    if (!user) return { error: 'User not authenticated' };
+
+    try {
+      // Resend email confirmation
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: user.email!
+      });
+
+      if (error) return { error: error.message };
+      return { success: true };
+    } catch (err) {
+      return { error: 'Failed to send verification email' };
+    }
+  };
+
+  const getRequiredSteps = () => {
+    return verificationSteps.filter(step =>
+      step.required && step.status === 'pending'
     );
+  };
 
-    return {
-      completed: submittedDocs.length,
-      total: requiredDocs.length,
-      percentage: Math.round((submittedDocs.length / requiredDocs.length) * 100),
-      isComplete: submittedDocs.length === requiredDocs.length,
-    };
+  const getOptionalSteps = () => {
+    return verificationSteps.filter(step =>
+      !step.required && step.status === 'pending'
+    );
+  };
+
+  const getCompletedSteps = () => {
+    return verificationSteps.filter(step => step.status === 'approved');
+  };
+
+  const canAccessLevel = (level: number) => {
+    return stats.currentLevel >= level;
   };
 
   return {
     documents,
+    references,
+    verificationSteps,
+    stats,
     loading,
     uploadDocument,
-    getVerificationProgress,
+    submitReferences,
+    requestPhoneVerification,
+    requestEmailVerification,
+    getRequiredSteps,
+    getOptionalSteps,
+    getCompletedSteps,
+    canAccessLevel,
+    refetch: fetchVerificationData
   };
 };

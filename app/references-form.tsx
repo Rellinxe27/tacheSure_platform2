@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, User, Phone, Mail, Briefcase, Plus, Trash2, CheckCircle, Clock } from 'lucide-react-native';
+import { useVerification } from '@/hooks/useVerification';
+import { useAuth } from '@/app/contexts/AuthContext';
 
 interface Reference {
   id: string;
@@ -17,6 +19,9 @@ interface Reference {
 
 export default function ReferencesFormScreen() {
   const router = useRouter();
+  const { user, profile } = useAuth();
+  const { submitReferences, references: existingReferences } = useVerification();
+
   const [step, setStep] = useState<'form' | 'verification' | 'complete'>('form');
   const [references, setReferences] = useState<Reference[]>([
     {
@@ -42,6 +47,7 @@ export default function ReferencesFormScreen() {
       status: 'pending'
     }
   ]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const relationshipTypes = [
     'Employeur précédent',
@@ -53,6 +59,24 @@ export default function ReferencesFormScreen() {
     'Superviseur',
     'Autre professionnel'
   ];
+
+  useEffect(() => {
+    // Load existing references if any
+    if (existingReferences.length > 0) {
+      const formattedRefs = existingReferences.map((ref, index) => ({
+        id: ref.id || String(index + 1),
+        name: ref.reference_name,
+        phone: ref.reference_phone,
+        email: ref.reference_email || '',
+        relationship: ref.relationship,
+        company: ref.company || '',
+        position: ref.position || '',
+        yearsKnown: ref.years_known || '',
+        status: (ref.verification_status as any) || 'pending'
+      }));
+      setReferences(formattedRefs);
+    }
+  }, [existingReferences]);
 
   const addReference = () => {
     if (references.length >= 5) {
@@ -91,45 +115,95 @@ export default function ReferencesFormScreen() {
 
   const validateForm = () => {
     for (const ref of references) {
-      if (!ref.name || !ref.phone || !ref.relationship || !ref.yearsKnown) {
-        Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires pour chaque référence');
+      if (!ref.name?.trim()) {
+        Alert.alert('Erreur', 'Le nom est obligatoire pour toutes les références');
         return false;
       }
-      if (ref.phone.length < 8) {
-        Alert.alert('Erreur', 'Numéro de téléphone invalide');
+      if (!ref.phone?.trim() || ref.phone.length < 10) {
+        Alert.alert('Erreur', 'Numéro de téléphone invalide pour ' + ref.name + ' (10 chiffres requis)');
+        return false;
+      }
+      if (!ref.relationship?.trim()) {
+        Alert.alert('Erreur', 'La relation professionnelle est obligatoire pour ' + ref.name);
+        return false;
+      }
+      if (!ref.yearsKnown?.trim()) {
+        Alert.alert('Erreur', 'La durée de connaissance est obligatoire pour ' + ref.name);
+        return false;
+      }
+
+      // Validate email format if provided
+      if (ref.email && !isValidEmail(ref.email)) {
+        Alert.alert('Erreur', 'Format d\'email invalide pour ' + ref.name);
         return false;
       }
     }
     return true;
   };
 
-  const submitReferences = () => {
+  const isValidEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const submitReferencesData = async () => {
     if (!validateForm()) return;
 
-    setStep('verification');
-    // Simulate contacting references
-    startVerificationProcess();
+    setIsSubmitting(true);
+
+    try {
+      // Format data for database
+      const referencesData = references.map(ref => ({
+        reference_name: ref.name.trim(),
+        reference_phone: ref.phone.trim(),
+        reference_email: ref.email?.trim() || undefined,
+        relationship: ref.relationship,
+        company: ref.company?.trim() || undefined,
+        position: ref.position?.trim() || undefined,
+        years_known: ref.yearsKnown.trim()
+      }));
+
+      const result = await submitReferences(referencesData);
+
+      if (result.error) {
+        Alert.alert('Erreur', result.error);
+        return;
+      }
+
+      setStep('verification');
+      startVerificationProcess();
+    } catch (error) {
+      Alert.alert('Erreur', 'Erreur lors de la soumission des références');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const startVerificationProcess = () => {
+    // Simulate contacting references with realistic delays
     references.forEach((ref, index) => {
       setTimeout(() => {
         setReferences(prev => prev.map(r =>
           r.id === ref.id ? { ...r, status: 'contacted' } : r
         ));
 
+        // Simulate response after contact
         setTimeout(() => {
+          const isSuccess = Math.random() > 0.15; // 85% success rate
           setReferences(prev => prev.map(r =>
-            r.id === ref.id ? { ...r, status: Math.random() > 0.2 ? 'verified' : 'failed' } : r
+            r.id === ref.id ? {
+              ...r,
+              status: isSuccess ? 'verified' : 'failed'
+            } : r
           ));
-        }, 2000);
-      }, index * 1000);
+        }, 2000 + Math.random() * 3000); // 2-5 seconds response time
+      }, index * 1000 + Math.random() * 2000); // Staggered contact attempts
     });
 
     // Complete verification after all references are processed
     setTimeout(() => {
       setStep('complete');
-    }, references.length * 3000 + 1000);
+    }, references.length * 5000 + 3000);
   };
 
   const getStatusIcon = (status: string) => {
@@ -150,6 +224,15 @@ export default function ReferencesFormScreen() {
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'verified': return '#4CAF50';
+      case 'contacted': return '#FF9800';
+      case 'failed': return '#FF5722';
+      default: return '#666';
+    }
+  };
+
   if (step === 'verification') {
     return (
       <View style={styles.container}>
@@ -164,7 +247,7 @@ export default function ReferencesFormScreen() {
           <User size={60} color="#FF7A00" />
           <Text style={styles.verificationTitle}>Contact des références</Text>
           <Text style={styles.verificationText}>
-            Nous contactons vos références pour vérifier vos informations professionnelles.
+            Nous contactons vos références pour vérifier vos informations professionnelles. Ce processus peut prendre quelques minutes.
           </Text>
 
           <View style={styles.referencesList}>
@@ -173,13 +256,24 @@ export default function ReferencesFormScreen() {
                 <View style={styles.referenceInfo}>
                   <Text style={styles.referenceName}>{ref.name}</Text>
                   <Text style={styles.referenceRelation}>{ref.relationship}</Text>
+                  {ref.company && (
+                    <Text style={styles.referenceCompany}>chez {ref.company}</Text>
+                  )}
                 </View>
                 <View style={styles.statusContainer}>
                   {getStatusIcon(ref.status)}
-                  <Text style={styles.statusText}>{getStatusText(ref.status)}</Text>
+                  <Text style={[styles.statusText, { color: getStatusColor(ref.status) }]}>
+                    {getStatusText(ref.status)}
+                  </Text>
                 </View>
               </View>
             ))}
+          </View>
+
+          <View style={styles.verificationProgress}>
+            <Text style={styles.progressText}>
+              {references.filter(r => r.status === 'verified').length} sur {references.length} références vérifiées
+            </Text>
           </View>
         </View>
       </View>
@@ -188,6 +282,8 @@ export default function ReferencesFormScreen() {
 
   if (step === 'complete') {
     const verifiedCount = references.filter(r => r.status === 'verified').length;
+    const contactedCount = references.filter(r => r.status === 'contacted').length;
+    const failedCount = references.filter(r => r.status === 'failed').length;
     const isSuccess = verifiedCount >= 2;
 
     return (
@@ -207,17 +303,57 @@ export default function ReferencesFormScreen() {
           <Text style={styles.completeText}>
             {isSuccess
               ? `${verifiedCount} de vos références ont été vérifiées avec succès.`
-              : `${verifiedCount} références vérifiées sur ${references.length}. Vous pouvez ajouter d'autres références pour améliorer votre score.`
+              : `${verifiedCount} références vérifiées sur ${references.length}. ${failedCount > 0 ? `${failedCount} n'ont pas pu être contactées.` : ''}`
             }
           </Text>
+
+          <View style={styles.resultsCard}>
+            <Text style={styles.resultsTitle}>Résultats détaillés:</Text>
+            <View style={styles.resultItem}>
+              <CheckCircle size={16} color="#4CAF50" />
+              <Text style={styles.resultText}>{verifiedCount} vérifiées</Text>
+            </View>
+            {contactedCount > 0 && (
+              <View style={styles.resultItem}>
+                <Clock size={16} color="#FF9800" />
+                <Text style={styles.resultText}>{contactedCount} en attente de réponse</Text>
+              </View>
+            )}
+            {failedCount > 0 && (
+              <View style={styles.resultItem}>
+                <Trash2 size={16} color="#FF5722" />
+                <Text style={styles.resultText}>{failedCount} non joignables</Text>
+              </View>
+            )}
+          </View>
 
           <View style={styles.benefitsCard}>
             <Text style={styles.benefitsTitle}>Score de confiance:</Text>
             <Text style={styles.trustBonus}>+{verifiedCount * 15} points</Text>
+            {isSuccess && (
+              <Text style={styles.bonusText}>Badge "Références Vérifiées" débloqué!</Text>
+            )}
           </View>
 
+          {!isSuccess && verifiedCount < 2 && (
+            <View style={styles.improvementCard}>
+              <Text style={styles.improvementTitle}>Suggestions d'amélioration:</Text>
+              <Text style={styles.improvementText}>
+                • Ajoutez des références avec des numéros actifs{'\n'}
+                • Prévenez vos références de notre contact{'\n'}
+                • Vérifiez les heures de disponibilité
+              </Text>
+              <TouchableOpacity
+                style={styles.improveButton}
+                onPress={() => setStep('form')}
+              >
+                <Text style={styles.improveButtonText}>Améliorer mes références</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <TouchableOpacity
-            style={styles.doneButton}
+            style={[styles.doneButton, { backgroundColor: isSuccess ? '#4CAF50' : '#FF9800' }]}
             onPress={() => router.back()}
           >
             <Text style={styles.doneButtonText}>Terminé</Text>
@@ -243,7 +379,7 @@ export default function ReferencesFormScreen() {
         <View style={styles.infoCard}>
           <User size={20} color="#2196F3" />
           <Text style={styles.infoText}>
-            Ajoutez 2-5 références professionnelles que nous pouvons contacter pour vérifier votre expérience.
+            Ajoutez 2-5 références professionnelles que nous pouvons contacter pour vérifier votre expérience et votre fiabilité.
           </Text>
         </View>
 
@@ -277,7 +413,7 @@ export default function ReferencesFormScreen() {
                 <Text style={styles.inputLabel}>Téléphone *</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="+225 XX XX XX XX"
+                  placeholder="+225 XX XX XX XX XX"
                   value={reference.phone}
                   onChangeText={(text) => updateReference(reference.id, 'phone', text)}
                   keyboardType="phone-pad"
@@ -349,7 +485,7 @@ export default function ReferencesFormScreen() {
               <Text style={styles.inputLabel}>Depuis combien de temps vous connaît cette personne? *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ex: 3 ans, 6 mois"
+                placeholder="Ex: 3 ans, 6 mois, depuis 2020"
                 value={reference.yearsKnown}
                 onChangeText={(text) => updateReference(reference.id, 'yearsKnown', text)}
                 placeholderTextColor="#666"
@@ -363,16 +499,31 @@ export default function ReferencesFormScreen() {
           <Text style={styles.addButtonText}>Ajouter une référence</Text>
         </TouchableOpacity>
 
-        <View style={styles.disclaimerCard}>
-          <Text style={styles.disclaimerTitle}>Note importante:</Text>
-          <Text style={styles.disclaimerText}>
-            Nous contacterons vos références par téléphone ou email pour vérifier vos informations.
-            Assurez-vous qu'elles sont prévenues de notre contact.
+        <View style={styles.tipsCard}>
+          <Text style={styles.tipsTitle}>💡 Conseils pour de meilleures références:</Text>
+          <Text style={styles.tipText}>
+            • Prévenez vos références de notre contact{'\n'}
+            • Choisissez des personnes facilement joignables{'\n'}
+            • Variez les types de relations professionnelles{'\n'}
+            • Assurez-vous que leurs coordonnées sont à jour
           </Text>
         </View>
 
-        <TouchableOpacity style={styles.submitButton} onPress={submitReferences}>
-          <Text style={styles.submitButtonText}>Soumettre les références</Text>
+        <View style={styles.disclaimerCard}>
+          <Text style={styles.disclaimerTitle}>Note importante:</Text>
+          <Text style={styles.disclaimerText}>
+            Nous contacterons vos références par téléphone ou email pour vérifier vos informations professionnelles. Le processus est confidentiel et professionnel.
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.submitButton, isSubmitting && styles.buttonDisabled]}
+          onPress={submitReferencesData}
+          disabled={isSubmitting}
+        >
+          <Text style={styles.submitButtonText}>
+            {isSubmitting ? 'Soumission en cours...' : 'Soumettre les références'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -511,8 +662,26 @@ const styles = StyleSheet.create({
     color: '#FF7A00',
     marginLeft: 8,
   },
-  disclaimerCard: {
+  tipsCard: {
     backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  tipsTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#E65100',
+    marginBottom: 8,
+  },
+  tipText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#E65100',
+    lineHeight: 16,
+  },
+  disclaimerCard: {
+    backgroundColor: '#E8F5E8',
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
@@ -520,13 +689,13 @@ const styles = StyleSheet.create({
   disclaimerTitle: {
     fontSize: 14,
     fontFamily: 'Inter-SemiBold',
-    color: '#E65100',
+    color: '#2E7D32',
     marginBottom: 8,
   },
   disclaimerText: {
     fontSize: 12,
     fontFamily: 'Inter-Regular',
-    color: '#E65100',
+    color: '#2E7D32',
     lineHeight: 16,
   },
   submitButton: {
@@ -535,6 +704,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 40,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   submitButtonText: {
     fontSize: 16,
@@ -565,6 +737,7 @@ const styles = StyleSheet.create({
   },
   referencesList: {
     alignSelf: 'stretch',
+    marginBottom: 20,
   },
   referenceStatus: {
     flexDirection: 'row',
@@ -574,6 +747,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 16,
     marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   referenceInfo: {
     flex: 1,
@@ -589,6 +767,12 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
+  referenceCompany: {
+    fontSize: 11,
+    fontFamily: 'Inter-Regular',
+    color: '#999',
+    marginTop: 1,
+  },
   statusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -596,8 +780,19 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
-    color: '#666',
     marginLeft: 8,
+  },
+  verificationProgress: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    padding: 12,
+    alignSelf: 'stretch',
+  },
+  progressText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#1976D2',
+    textAlign: 'center',
   },
   completeContainer: {
     flex: 1,
@@ -619,14 +814,39 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  resultsCard: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    alignSelf: 'stretch',
+  },
+  resultsTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  resultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  resultText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginLeft: 8,
   },
   benefitsCard: {
     backgroundColor: '#E8F5E8',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 32,
+    marginBottom: 20,
     alignItems: 'center',
+    alignSelf: 'stretch',
   },
   benefitsTitle: {
     fontSize: 14,
@@ -638,6 +858,45 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Bold',
     color: '#4CAF50',
     marginTop: 4,
+  },
+  bonusText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#2E7D32',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  improvementCard: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    alignSelf: 'stretch',
+  },
+  improvementTitle: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#E65100',
+    marginBottom: 8,
+  },
+  improvementText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#E65100',
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  improveButton: {
+    backgroundColor: '#FF7A00',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  improveButtonText: {
+    fontSize: 12,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
   },
   doneButton: {
     backgroundColor: '#4CAF50',

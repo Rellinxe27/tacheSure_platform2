@@ -1,4 +1,4 @@
-// hooks/useVerification.ts - Enhanced with persistent data
+// hooks/useVerification.ts - Fixed role-based verification steps
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/lib/database.types';
@@ -72,10 +72,10 @@ export const useVerification = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, profile]); // Added profile as dependency
+  }, [user, profile]);
 
   const fetchVerificationData = async () => {
-    if (!user) return;
+    if (!user || !profile) return; // Wait for profile to be available
 
     try {
       setLoading(true);
@@ -89,28 +89,32 @@ export const useVerification = () => {
 
       if (documentsError) throw documentsError;
 
-      // Fetch professional references
-      const { data: referencesData, error: referencesError } = await supabase
-        .from('professional_references')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      // Fetch professional references (only for providers)
+      let referencesData: ProfessionalReference[] = [];
+      if (profile.role === 'provider') {
+        const { data: refData, error: referencesError } = await supabase
+          .from('professional_references')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
 
-      if (referencesError) throw referencesError;
+        if (referencesError) throw referencesError;
+        referencesData = refData || [];
+      }
 
       setDocuments(documentsData || []);
-      setReferences(referencesData || []);
+      setReferences(referencesData);
 
       // Build verification steps based on user role and current data
-      const steps = buildVerificationSteps(documentsData || [], referencesData || []);
+      const steps = buildVerificationSteps(documentsData || [], referencesData, profile.role);
       setVerificationSteps(steps);
 
       // Calculate stats
       const calculatedStats = calculateVerificationStats(steps);
       setStats(calculatedStats);
 
-      // Update profile if trust score changed and profile exists
-      if (profile && profile.trust_score !== calculatedStats.trustScore) {
+      // Update profile if trust score changed
+      if (profile.trust_score !== calculatedStats.trustScore) {
         await updateProfile({
           trust_score: calculatedStats.trustScore,
           verification_level: getVerificationLevel(calculatedStats.currentLevel)
@@ -126,8 +130,10 @@ export const useVerification = () => {
 
   const buildVerificationSteps = (
     docs: VerificationDocument[],
-    refs: ProfessionalReference[]
+    refs: ProfessionalReference[],
+    userRole: string
   ): VerificationStep[] => {
+    // Base steps for all users (Level 1)
     const baseSteps = [
       {
         id: 'phone',
@@ -145,48 +151,51 @@ export const useVerification = () => {
       }
     ];
 
-    // Add provider-specific steps only if profile exists and user is provider
-    if (profile?.role === 'provider') {
-      baseSteps.push(
-        {
-          id: 'identity',
-          title: 'Carte d\'identité (CNI)',
-          description: 'Scan et reconnaissance faciale',
-          level: 2,
-          required: true
-        },
-        {
-          id: 'address',
-          title: 'Justificatif de domicile',
-          description: 'Facture récente (électricité/eau)',
-          level: 2,
-          required: true
-        },
-        {
-          id: 'background',
-          title: 'Casier judiciaire',
-          description: 'Vérification antécédents',
-          level: 3,
-          required: false
-        },
-        {
-          id: 'references',
-          title: 'Références professionnelles',
-          description: '2-3 contacts vérifiables',
-          level: 3,
-          required: false
-        },
-        {
-          id: 'community',
-          title: 'Validation communautaire',
-          description: 'Recommandation locale',
-          level: 4,
-          required: false
-        }
-      );
-    }
+    // Provider-specific additional steps
+    const providerSteps = [
+      {
+        id: 'identity',
+        title: 'Carte d\'identité (CNI)',
+        description: 'Scan et reconnaissance faciale',
+        level: 2,
+        required: true
+      },
+      {
+        id: 'address',
+        title: 'Justificatif de domicile',
+        description: 'Facture récente (électricité/eau)',
+        level: 2,
+        required: true
+      },
+      {
+        id: 'background',
+        title: 'Casier judiciaire',
+        description: 'Vérification antécédents',
+        level: 3,
+        required: false
+      },
+      {
+        id: 'references',
+        title: 'Références professionnelles',
+        description: '2-3 contacts vérifiables',
+        level: 3,
+        required: false
+      },
+      {
+        id: 'community',
+        title: 'Validation communautaire',
+        description: 'Recommandation locale',
+        level: 4,
+        required: false
+      }
+    ];
 
-    return baseSteps.map(step => {
+    // Build steps array based on role
+    const allSteps = userRole === 'provider'
+      ? [...baseSteps, ...providerSteps]
+      : baseSteps;
+
+    return allSteps.map(step => {
       let status: 'pending' | 'submitted' | 'approved' | 'rejected' = 'pending';
       let document: VerificationDocument | undefined;
       let stepReferences: ProfessionalReference[] = [];
@@ -239,13 +248,20 @@ export const useVerification = () => {
     const approvedSteps = steps.filter(s => s.status === 'approved');
     const maxLevel = Math.max(...approvedSteps.map(s => s.level), 1);
 
-    // Calculate trust score based on completed verifications
+    // Role-based trust score calculation
     let trustScore = 0;
-    const scoreWeights = { 1: 20, 2: 25, 3: 30, 4: 40 };
 
-    approvedSteps.forEach(step => {
-      trustScore += scoreWeights[step.level as keyof typeof scoreWeights] || 0;
-    });
+    if (profile?.role === 'client') {
+      // Client scoring: 50 points max per level 1 step (phone + email = 100%)
+      const level1Approved = approvedSteps.filter(s => s.level === 1);
+      trustScore = level1Approved.length * 50;
+    } else {
+      // Provider scoring: weighted by level importance
+      const scoreWeights = { 1: 20, 2: 25, 3: 30, 4: 40 };
+      approvedSteps.forEach(step => {
+        trustScore += scoreWeights[step.level as keyof typeof scoreWeights] || 0;
+      });
+    }
 
     // Find next required step
     const nextRequiredStep = steps.find(s =>
@@ -271,6 +287,7 @@ export const useVerification = () => {
     }
   };
 
+  // Rest of the methods remain the same...
   const uploadDocument = async (documentData: {
     document_type: string;
     document_url: string;
@@ -345,14 +362,10 @@ export const useVerification = () => {
     if (!user) return { error: 'User not authenticated' };
 
     try {
-      // Update profile with phone number
       const { error } = await updateProfile({ phone: phoneNumber });
       if (error) return { error };
 
-      // In a real app, you'd send SMS verification here
-      // For now, we'll mark as verified after profile update
       await fetchVerificationData();
-
       return { success: true };
     } catch (err) {
       return { error: 'Failed to verify phone' };
@@ -363,7 +376,6 @@ export const useVerification = () => {
     if (!user) return { error: 'User not authenticated' };
 
     try {
-      // Resend email confirmation
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: user.email!

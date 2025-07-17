@@ -162,6 +162,22 @@ A secure marketplace mobile application built with React Native and Expo, featur
    - Fonts are loaded via Expo Google Fonts
    - Check network connection
 
+## 📚 Complete Documentation
+
+This README provides a quick overview. For comprehensive documentation, visit:
+
+- 📖 **[Complete Documentation Hub](docs/index.md)** - Start here for all documentation
+- 👤 **[User Guide](docs/USER_GUIDE.md)** - Step-by-step guides for all user types
+- 🔌 **[API Documentation](docs/API_DOCUMENTATION.md)** - Complete API reference
+- 🚀 **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Production deployment instructions
+
+## 📞 Support
+
+- **Technical Support**: [support@tachesure.ci](mailto:support@tachesure.ci)
+- **Developer Support**: [dev-support@tachesure.ci](mailto:dev-support@tachesure.ci)
+- **Bug Reports**: [GitHub Issues](https://github.com/username/tachesure/issues)
+- **Feature Requests**: [GitHub Discussions](https://github.com/username/tachesure/discussions)
+
 ## 📄 License
 
 This project is licensed under the MIT License.
@@ -171,8 +187,9 @@ This project is licensed under the MIT License.
 1. Fork the repository
 2. Create a feature branch
 3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+4. Write/update tests
+5. Update documentation
+6. Submit a pull request
 
 ---
 

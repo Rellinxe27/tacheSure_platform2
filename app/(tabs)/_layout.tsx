@@ -1,27 +1,15 @@
-// app/(tabs)/_layout.tsx - Final Fix
+// app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
 import { Chrome as Home, Search, MessageCircle, User, Plus, Shield, Calendar, Briefcase } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { useEffect } from 'react';
 
 export default function TabLayout() {
   const { profile, loading } = useAuth();
-
-  // Debug logging
-  useEffect(() => {
-    if (profile) {
-      console.log('🔍 Profile Role:', profile.role);
-      console.log('🔍 Role Type:', typeof profile.role);
-      console.log('🔍 Is Admin Check:', profile.role === 'admin' || profile.role === 'moderator');
-    }
-  }, [profile]);
 
   if (loading || !profile) return null;
 
   const isProvider = profile.role === 'provider';
   const isAdmin = profile.role === 'admin' || profile.role === 'moderator';
-
-  console.log('🎯 Final render - isAdmin:', isAdmin, 'role:', profile.role);
 
   return (
     <Tabs

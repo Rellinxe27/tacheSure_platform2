@@ -298,6 +298,42 @@ export default function AdvancedMatching({
             return null;
           }
 
+          // Calculate match score based on multiple factors
+          const calculateMatchScore = () => {
+            // Base factors
+            const trustScoreMatch = profile.trust_score ? Math.min(1, profile.trust_score / 100) * 0.25 : 0;
+            const distanceMatch = Math.max(0, 1 - (distance / (criteria.radius || 10))) * 0.15;
+            const languageMatch = profile.languages?.includes(criteria.language) ? 0.15 : 0;
+            const ratingMatch = averageRating > 0 ? (averageRating / 5) * 0.15 : 0;
+            
+            // Availability match
+            let availabilityMatch = 0;
+            if (availability === 'available') availabilityMatch = 0.1;
+            else if (availability === 'busy') availabilityMatch = 0.05;
+            
+            // Service match - how well services match the search criteria
+            const serviceMatchScore = filteredServices.length > 0 ? 
+              Math.min(1, filteredServices.length / Math.max(1, criteria.selectedCategories.length)) * 0.1 : 0;
+            
+            // Price match - how well provider's price range matches budget
+            let priceMatchScore = 0;
+            if (filteredServices.length > 0 && criteria.budget.max > 0) {
+              const avgMinPrice = filteredServices.reduce((sum, s) => sum + s.price_min, 0) / filteredServices.length;
+              const avgMaxPrice = filteredServices.reduce((sum, s) => sum + s.price_max, 0) / filteredServices.length;
+              const budgetFit = avgMinPrice <= criteria.budget.max && avgMaxPrice >= criteria.budget.min;
+              priceMatchScore = budgetFit ? 0.1 : 0;
+            }
+            
+            // Calculate final score (0-100)
+            const score = (trustScoreMatch + distanceMatch + languageMatch + 
+                          ratingMatch + availabilityMatch + serviceMatchScore + 
+                          priceMatchScore) * 100;
+            
+            return Math.round(score);
+          };
+          
+          const matchScore = calculateMatchScore();
+          
           return {
             id: profile.id,
             full_name: profile.full_name || 'Prestataire',
@@ -318,7 +354,7 @@ export default function AdvancedMatching({
             responseTime: Math.floor(Math.random() * 30) + 5,
             completedTasks,
             availability,
-            matchScore: 85, // Mock for now
+            matchScore,
             lastSeen: profile.last_seen_at
           };
         })

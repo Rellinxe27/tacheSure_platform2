@@ -5,13 +5,14 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { useTasks } from '@/hooks/useTasks';
 import { useCategories } from '@/hooks/useCategories';
-import { MapPin, DollarSign, Clock, Camera, X, Upload } from 'lucide-react-native';
+import { MapPin, DollarSign, Clock, Camera, X, Upload, Navigation } from 'lucide-react-native';
 import { validateTaskData } from '@/utils/validation';
 import { useDynamicIslandNotification } from '@/components/SnackBar';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/lib/supabase';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
+import { getCurrentLocation } from '@/utils/permissions';
 
 // Enhanced upload function for task images
 const uploadDocumentToSupabase = async (
@@ -44,7 +45,6 @@ const uploadDocumentToSupabase = async (
       });
 
     if (error) {
-      console.error('Supabase upload error:', error);
       return { success: false, error: error.message };
     }
 
@@ -59,7 +59,6 @@ const uploadDocumentToSupabase = async (
     };
 
   } catch (error) {
-    console.error('Upload error:', error);
     return {
       success: false,
       error: 'Failed to upload image'
@@ -96,6 +95,7 @@ export default function TaskCreationScreen() {
   const [selectedImages, setSelectedImages] = useState<{ uri: string; uploaded?: boolean }[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [locationStatus, setLocationStatus] = useState<string>('');
 
   const pickImage = async () => {
     try {
@@ -177,7 +177,6 @@ export default function TaskCreationScreen() {
         }
       }
     } catch (error) {
-      console.error('Upload error:', error);
       showNotification('Erreur lors du téléchargement des images', 'error');
     } finally {
       setUploading(false);
@@ -189,17 +188,70 @@ export default function TaskCreationScreen() {
   const removeImage = (index: number) => {
     setSelectedImages(prev => prev.filter((_, i) => i !== index));
   };
+  
+  const handleGetCurrentLocation = async () => {
+    try {
+      setLocationStatus('Récupération de votre position...');
+      const userLocation = await getCurrentLocation();
+      
+      if (userLocation) {
+        setTaskData(prev => ({
+          ...prev,
+          location: {
+            lat: userLocation.coords.latitude,
+            lng: userLocation.coords.longitude
+          },
+          address: {
+            ...prev.address,
+            street: 'Position actuelle',
+            district: 'Localisation GPS'
+          }
+        }));
+        setLocationStatus('Position actuelle définie');
+        showNotification('Position actuelle définie avec succès', 'success');
+      } else {
+        setLocationStatus('Impossible de récupérer votre position');
+        showNotification('Impossible de récupérer votre position', 'error');
+      }
+    } catch (error) {
+      setLocationStatus('Erreur de localisation');
+      showNotification('Erreur lors de la récupération de votre position', 'error');
+    }
+  };
 
   const handleSubmit = async () => {
+    // Validate task data
     const validation = validateTaskData(taskData);
     if (!validation.isValid) {
       Alert.alert('Erreur', validation.errors.join('\n'));
       return;
     }
 
+    // Validate user is logged in
     if (!user) {
       Alert.alert('Erreur', 'Vous devez être connecté pour créer une tâche');
       return;
+    }
+    
+    // Validate budget values
+    if (taskData.budget_min && taskData.budget_max) {
+      const minBudget = parseInt(taskData.budget_min);
+      const maxBudget = parseInt(taskData.budget_max);
+      
+      if (isNaN(minBudget) || isNaN(maxBudget)) {
+        Alert.alert('Erreur', 'Les budgets doivent être des nombres valides');
+        return;
+      }
+      
+      if (minBudget < 0 || maxBudget < 0) {
+        Alert.alert('Erreur', 'Les budgets ne peuvent pas être négatifs');
+        return;
+      }
+      
+      if (minBudget > maxBudget) {
+        Alert.alert('Erreur', 'Le budget minimum ne peut pas être supérieur au budget maximum');
+        return;
+      }
     }
 
     setLoading(true);
@@ -292,8 +344,12 @@ export default function TaskCreationScreen() {
             <TextInput
               style={styles.input}
               value={taskData.budget_min}
-              onChangeText={(text) => setTaskData(prev => ({ ...prev, budget_min: text }))}
-              placeholder="10000"
+              onChangeText={(text) => {
+                // Only allow numeric input
+                const numericValue = text.replace(/[^0-9]/g, '');
+                setTaskData(prev => ({ ...prev, budget_min: numericValue }));
+              }}
+              placeholder="Min FCFA (ex: 10000)"
               keyboardType="numeric"
             />
           </View>
@@ -302,11 +358,46 @@ export default function TaskCreationScreen() {
             <TextInput
               style={styles.input}
               value={taskData.budget_max}
-              onChangeText={(text) => setTaskData(prev => ({ ...prev, budget_max: text }))}
-              placeholder="25000"
+              onChangeText={(text) => {
+                // Only allow numeric input
+                const numericValue = text.replace(/[^0-9]/g, '');
+                setTaskData(prev => ({ ...prev, budget_max: numericValue }));
+              }}
+              placeholder="Max FCFA (ex: 25000)"
               keyboardType="numeric"
             />
           </View>
+        </View>
+        
+        {/* Location Section */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Localisation</Text>
+          <Text style={styles.sublabel}>Définissez l'emplacement de la tâche</Text>
+          
+          <View style={styles.locationContainer}>
+            <MapPin size={20} color="#666" />
+            <Text style={styles.locationText}>
+              {taskData.address.street || 'Aucune localisation définie'}
+              {taskData.address.district ? `, ${taskData.address.district}` : ''}
+            </Text>
+            <TouchableOpacity
+              style={styles.locationButton}
+              onPress={handleGetCurrentLocation}
+            >
+              <Navigation size={16} color="#FFFFFF" />
+              <Text style={styles.locationButtonText}>Ma position</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {locationStatus ? (
+            <Text style={[
+              styles.locationStatus,
+              locationStatus.includes('Erreur') ? styles.locationError : 
+              locationStatus.includes('Position actuelle') ? styles.locationSuccess : {}
+            ]}>
+              {locationStatus}
+            </Text>
+          ) : null}
         </View>
 
         {/* Photo Upload Section */}
@@ -516,5 +607,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
+  },
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    marginBottom: 8,
+  },
+  locationText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#333',
+    marginLeft: 12,
+  },
+  locationButton: {
+    backgroundColor: '#FF7A00',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationButtonText: {
+    fontSize: 12,
+    fontFamily: 'Inter-Medium',
+    color: '#FFFFFF',
+    marginLeft: 4,
+  },
+  locationStatus: {
+    fontSize: 12,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  locationSuccess: {
+    color: '#4CAF50',
+  },
+  locationError: {
+    color: '#F44336',
   },
 });

@@ -43,12 +43,16 @@ export const useRole = () => {
   const isProvider = () => hasRole('provider');
   const isClient = () => hasRole('client');
   const isAdmin = () => hasRole('admin');
+  const isModerator = () => hasRole('moderator');
+  const isVerifier = () => hasRole('verifier');
 
   return {
     currentRole: profile?.role,
     hasRole,
     isProvider,
     isClient,
-    isAdmin
+    isAdmin,
+    isModerator,
+    isVerifier
   };
 };

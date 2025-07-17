@@ -50,6 +50,13 @@ export default function ProfileScreen() {
       roles: ['client', 'provider'] as const
     },
     {
+      id: 'cultural_integration',
+      title: 'Intégration Culturelle',
+      icon: MapPin,
+      color: '#FF9800',
+      roles: ['client', 'provider'] as const
+    },
+    {
       id: 'achievements',
       title: 'Récompenses et badges',
       icon: Award,
@@ -89,6 +96,9 @@ export default function ProfileScreen() {
         break;
       case 'verification':
         router.push('/verification-status');
+        break;
+      case 'cultural_integration':
+        router.push('/cultural-integration');
         break;
       case 'achievements':
         Alert.alert('Récompenses', 'Section en cours de développement');

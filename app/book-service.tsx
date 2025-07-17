@@ -8,6 +8,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { formatCurrency } from '@/utils/formatting';
 import PaymentSelector from '@/components/PaymentSelector';
 import { getCurrentLocation } from '@/utils/permissions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function BookServiceScreen() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function BookServiceScreen() {
   const [service, setService] = useState<any>(null);
   const [provider, setProvider] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingLocation, setLoadingLocation] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -26,9 +28,27 @@ export default function BookServiceScreen() {
   const [showPayment, setShowPayment] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<any>(null);
 
+  const [filters, setFilters] = useState({
+    location: { lat: 5.3600, lng: -4.0083, address: 'Abidjan, Côte d\'Ivoire' },
+    radius: 10,
+    budget: { min: 1000, max: 100000 }, // More inclusive range
+    urgency: 'normal' as 'low' | 'normal' | 'high',
+    skills: [] as string[],
+    language: 'Français',
+    timePreference: 'anytime' as 'morning' | 'afternoon' | 'evening' | 'anytime',
+    minRating: 0, // Accept all ratings
+    minTrustScore: 0, // Accept all trust scores
+    verificationLevel: 'any' as 'any' | 'basic' | 'government' | 'enhanced',
+    availability: 'any' as 'any' | 'available' | 'busy', // Accept all availability
+    selectedCategories: [] as string[],
+    priceUnit: 'heure' as 'heure' | 'jour' | 'tâche',
+    emergencyOnly: false,
+    insuranceRequired: false,
+    experienceLevel: 'any' as 'any' | 'beginner' | 'intermediate' | 'expert'
+  });
+
   useEffect(() => {
     fetchServiceAndProvider();
-    getUserLocation();
   }, [serviceId, providerId]);
 
   const fetchServiceAndProvider = async () => {
@@ -65,36 +85,102 @@ export default function BookServiceScreen() {
         setProvider(providerData);
       }
     } catch (error) {
-      console.error('Error fetching data:', error);
       Alert.alert('Erreur', 'Impossible de charger les informations');
     } finally {
       setLoading(false);
     }
   };
 
-  const getUserLocation = async () => {
+  const saveFilters = async (newFilters: typeof filters) => {
     try {
-      const userLocation = await getCurrentLocation();
-      if (userLocation) {
-        setLocation({
-          latitude: userLocation.coords.latitude,
-          longitude: userLocation.coords.longitude,
-          address: 'Position actuelle'
-        });
-      }
+      await AsyncStorage.setItem('advancedSearchFilters', JSON.stringify(newFilters));
     } catch (error) {
-      console.error('Error getting location:', error);
+      console.error('Error saving filters:', error);
     }
   };
 
+  const handleGetLocation = async () => {
+    setLoadingLocation(true);
+    try {
+      const currentLocation = await getCurrentLocation();
+      if (currentLocation) {
+        const locationData = {
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+          address: 'Position actuelle'
+        };
+
+        // Update the location state used in booking
+        setLocation(locationData);
+
+        // Also update filters for consistency
+        const newFilters = {
+          ...filters,
+          location: {
+            lat: currentLocation.coords.latitude,
+            lng: currentLocation.coords.longitude,
+            address: 'Position actuelle'
+          }
+        };
+        setFilters(newFilters);
+        await saveFilters(newFilters);
+
+        Alert.alert('Succès', 'Position mise à jour');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de récupérer votre position');
+    } finally {
+      setLoadingLocation(false);
+    }
+  };
+
+  // Validate date format (YYYY-MM-DD)
+  const validateDate = (date: string) => {
+    const regex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!regex.test(date)) return false;
+    
+    const d = new Date(date);
+    const isValidDate = d instanceof Date && !isNaN(d.getTime());
+    if (!isValidDate) return false;
+    
+    // Check if date is in the future
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return d >= today;
+  };
+
+  // Validate time format (HH:MM)
+  const validateTime = (time: string) => {
+    const regex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    return regex.test(time);
+  };
+
   const handleBooking = async () => {
+    // Validate required fields
     if (!selectedDate || !selectedTime || !taskDescription.trim()) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
       return;
     }
 
+    // Validate date and time formats
+    if (!validateDate(selectedDate)) {
+      Alert.alert('Erreur', 'Veuillez entrer une date valide au format YYYY-MM-DD (date future)');
+      return;
+    }
+
+    if (!validateTime(selectedTime)) {
+      Alert.alert('Erreur', 'Veuillez entrer une heure valide au format HH:MM');
+      return;
+    }
+
     if (!location) {
       Alert.alert('Erreur', 'Veuillez définir une localisation pour la tâche');
+      return;
+    }
+    
+    // Validate price if entered
+    if (customPrice && (isNaN(parseInt(customPrice)) || parseInt(customPrice) < 0)) {
+      Alert.alert('Erreur', 'Veuillez entrer un prix valide');
       return;
     }
 
@@ -146,8 +232,7 @@ export default function BookServiceScreen() {
         );
       }
     } catch (error) {
-      console.error('Error creating booking:', error);
-      Alert.alert('Erreur', 'Impossible de créer la réservation');
+      Alert.alert('Erreur', 'Impossible de créer la réservation. Veuillez réessayer plus tard.');
     }
   };
 
@@ -155,17 +240,41 @@ export default function BookServiceScreen() {
     setSelectedPaymentMethod(method);
   };
 
-  const handlePaymentComplete = () => {
-    Alert.alert(
-      'Réservation et paiement confirmés!',
-      'Votre tâche a été créée et le paiement est en cours de traitement.',
-      [
-        {
-          text: 'OK',
-          onPress: () => router.push('/(tabs)/index')
-        }
-      ]
-    );
+  const handlePaymentComplete = async () => {
+    try {
+      if (!taskResult || !selectedPaymentMethod || !profile) {
+        throw new Error('Missing required data for payment');
+      }
+      
+      // Import the escrow payment utility
+      const { createEscrowPayment } = await import('@/utils/escrowPayment');
+      
+      // Create escrow payment
+      await createEscrowPayment(
+        taskResult.id,
+        profile.id,
+        service?.provider_id || '',
+        parseInt(customPrice) || service?.price_min || 0,
+        selectedPaymentMethod.id as 'mtn_money' | 'orange_money' | 'moov_money' | 'bank_transfer' | 'cash'
+      );
+      
+      Alert.alert(
+        'Réservation et paiement confirmés!',
+        'Votre tâche a été créée et le paiement est sécurisé dans notre système d\'entiercement. Le prestataire recevra le paiement une fois le service complété.',
+        [
+          {
+            text: 'OK',
+            onPress: () => router.push('/(tabs)/index')
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Payment error:', error);
+      Alert.alert(
+        'Erreur de paiement',
+        'Une erreur est survenue lors du traitement du paiement. Veuillez réessayer plus tard.'
+      );
+    }
   };
 
   if (loading) {
@@ -247,10 +356,11 @@ export default function BookServiceScreen() {
                 <Calendar size={20} color="#666" />
                 <TextInput
                   style={styles.input}
-                  placeholder="YYYY-MM-DD"
+                  placeholder="YYYY-MM-DD (ex: 2025-07-20)"
                   value={selectedDate}
                   onChangeText={setSelectedDate}
                   placeholderTextColor="#666"
+                  keyboardType="numbers-and-punctuation"
                 />
               </View>
             </View>
@@ -261,10 +371,11 @@ export default function BookServiceScreen() {
                 <Clock size={20} color="#666" />
                 <TextInput
                   style={styles.input}
-                  placeholder="HH:MM"
+                  placeholder="HH:MM (ex: 14:30)"
                   value={selectedTime}
                   onChangeText={setSelectedTime}
                   placeholderTextColor="#666"
+                  keyboardType="numbers-and-punctuation"
                 />
               </View>
             </View>
@@ -303,9 +414,13 @@ export default function BookServiceScreen() {
               <DollarSign size={20} color="#666" />
               <TextInput
                 style={styles.input}
-                placeholder="Montant"
+                placeholder="Montant en FCFA (ex: 5000)"
                 value={customPrice}
-                onChangeText={setCustomPrice}
+                onChangeText={(text) => {
+                  // Only allow numeric input
+                  const numericValue = text.replace(/[^0-9]/g, '');
+                  setCustomPrice(numericValue);
+                }}
                 keyboardType="numeric"
                 placeholderTextColor="#666"
               />
@@ -321,9 +436,14 @@ export default function BookServiceScreen() {
               </Text>
               <TouchableOpacity
                 style={styles.locationButton}
-                onPress={getUserLocation}
+                onPress={handleGetLocation}
+                disabled={loadingLocation}
               >
-                <Text style={styles.locationButtonText}>Ma position</Text>
+                {loadingLocation ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.locationButtonText}>Ma position</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>

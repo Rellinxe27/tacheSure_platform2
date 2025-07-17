@@ -17,7 +17,7 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
   useEffect(() => {
     if (loading) return;
 
-    const inAuthGroup = segments[0] === 'auth/login';
+    const inAuthGroup = segments[0] === 'auth';
     const isIndex = segments.length === 0 || segments[0] === 'index';
 
     // Prevent multiple navigation calls
@@ -37,7 +37,7 @@ export default function AuthWrapper({ children }: AuthWrapperProps) {
         hasNavigated.current = false;
       }, 1000);
     }
-  }, [user, loading]);
+  }, [user, loading, segments]);
 
   if (loading) {
     return (

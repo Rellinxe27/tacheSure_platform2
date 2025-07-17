@@ -61,7 +61,7 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <Search size={size} color={color} />
           ),
-          href: isProvider ? null : '/search',
+          href: isProvider ? null : undefined,
         }}
       />
 
@@ -73,7 +73,7 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <Calendar size={size} color={color} />
           ),
-          href: isProvider ? '/availability-calendar' : null,
+          href: isProvider ? undefined : null,
         }}
       />
 
@@ -84,7 +84,6 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             isProvider ? <Briefcase size={size} color={color} /> : <Plus size={size} color={color} />
           ),
-          href: isProvider ? '/service-management' : '/post-task',
         }}
       />
 
@@ -116,7 +115,7 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <Shield size={size} color={color} />
           ),
-          href: isAdmin ? '/admin' : null,
+          href: isAdmin ? undefined : null,
         }}
       />
     </Tabs>

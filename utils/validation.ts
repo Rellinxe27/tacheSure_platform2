@@ -1,5 +1,4 @@
 // utils/validation.ts
-import { useDynamicIslandNotification } from '@/components/SnackBar';
 
 export const validateEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -14,18 +13,17 @@ export const validatePhone = (phone: string): boolean => {
 
 export const validatePassword = (password: string): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
-  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
 
   if (password.length < 6) {
-    showNotification('Le mot de passe doit contenir au moins 6 caractères', 'error');
+    errors.push('Le mot de passe doit contenir au moins 6 caractères');
   }
 
   if (!/[A-Z]/.test(password)) {
-    showNotification('Le mot de passe doit contenir au moins une majuscule', 'error');
+    errors.push('Le mot de passe doit contenir au moins une majuscule');
   }
 
   if (!/[0-9]/.test(password)) {
-    showNotification('Le mot de passe doit contenir au moins un chiffre', 'error');
+    errors.push('Le mot de passe doit contenir au moins un chiffre');
   }
 
   return {
@@ -57,4 +55,19 @@ export const validateTaskData = (taskData: any): { isValid: boolean; errors: str
     isValid: errors.length === 0,
     errors
   };
+};
+
+export const validateName = (name: string): boolean => {
+  return name.trim().length >= 2;
+};
+
+export const validateBirthDate = (birthDate: string): boolean => {
+  const date = new Date(birthDate);
+  const now = new Date();
+  const age = now.getFullYear() - date.getFullYear();
+  return age >= 18 && age <= 100;
+};
+
+export const validateAddress = (address: string): boolean => {
+  return address.trim().length >= 10;
 };

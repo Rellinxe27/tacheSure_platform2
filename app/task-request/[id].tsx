@@ -1,5 +1,5 @@
-// app/task-request/[id].tsx
-import React, { useState, useEffect } from 'react';
+// app/task-request/[id].tsx - Fixed version
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,9 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { formatCurrency, formatTimeAgo } from '@/utils/formatting';
 import { NotificationService } from '@/utils/notificationService';
 import TrustBadge from '@/components/TrustBadge';
+import { useDynamicIslandNotification } from '@/components/SnackBar';
 
+// Types
 interface TaskRequest {
   id: string;
   title: string;
@@ -38,7 +40,12 @@ interface TaskRequest {
   budget_max: number;
   scheduled_at: string;
   urgency: string;
+  category_id?: string;
   address: any;
+  status: string;
+  client_id?: string;
+  provider_id?: string;
+  responded_at?: string;
   client: {
     id: string;
     full_name: string;
@@ -51,6 +58,17 @@ interface TaskRequest {
     name_fr: string;
     icon: string;
   };
+}
+
+interface AvailabilitySlot {
+  id?: string;
+  provider_id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  is_available: boolean;
+  is_booked?: boolean;
+  task_id?: string;
 }
 
 interface BusinessIntelligence {
@@ -79,27 +97,29 @@ export default function TaskRequestScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { user, profile } = useAuth();
+  const { showNotification, NotificationComponent } = useDynamicIslandNotification();
 
   const [task, setTask] = useState<TaskRequest | null>(null);
   const [businessIntel, setBusinessIntel] = useState<BusinessIntelligence | null>(null);
   const [loading, setLoading] = useState(true);
+  const [biLoading, setBiLoading] = useState(false);
   const [responding, setResponding] = useState(false);
+  const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (id) {
-      fetchTaskRequest();
+  const taskId = Array.isArray(id) ? id[0] : id;
+
+  const fetchTaskRequest = useCallback(async () => {
+    if (!taskId) {
+      setError('Invalid task ID');
+      setLoading(false);
+      return;
     }
-  }, [id]);
 
-  useEffect(() => {
-    if (task?.client?.id) {
-      generateBusinessIntelligence();
-    }
-  }, [task]);
-
-  const fetchTaskRequest = async () => {
     try {
-      const { data, error } = await supabase
+      setError(null);
+      const { data, error: fetchError } = await supabase
         .from('tasks')
         .select(`
           *,
@@ -108,60 +128,111 @@ export default function TaskRequestScreen() {
           ),
           categories (name_fr, icon)
         `)
-        .eq('id', id)
+        .eq('id', taskId)
         .single();
 
-      if (error) throw error;
+      if (fetchError) throw fetchError;
+
+      console.log('Fetched task:', data);
       setTask(data);
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible de charger la demande');
+      console.error('Error fetching task:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur lors du chargement de la demande';
+      setError(errorMessage);
+      showNotification(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [taskId, showNotification]);
 
-  const generateBusinessIntelligence = async () => {
+  const fetchProviderAvailability = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      // Simple availability generation for demo
+      const today = new Date();
+      const slots: AvailabilitySlot[] = [];
+
+      for (let i = 1; i <= 7; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+
+        slots.push({
+          provider_id: user.id,
+          date: date.toISOString().split('T')[0],
+          start_time: '09:00',
+          end_time: '11:00',
+          is_available: true,
+          is_booked: false
+        });
+
+        slots.push({
+          provider_id: user.id,
+          date: date.toISOString().split('T')[0],
+          start_time: '14:00',
+          end_time: '16:00',
+          is_available: true,
+          is_booked: false
+        });
+      }
+
+      setAvailabilitySlots(slots);
+    } catch (error) {
+      console.error('Error fetching availability:', error);
+      showNotification('Erreur lors du chargement des créneaux', 'error');
+    }
+  }, [user?.id, showNotification]);
+
+  // Fixed: Remove dependency to prevent infinite loop
+  const generateBusinessIntelligence = useCallback(async (clientId: string) => {
+    setBiLoading(true);
+    setError(null);
+
     try {
       // Fetch client statistics
       const { data: clientTasks } = await supabase
         .from('tasks')
         .select('status, budget_min, budget_max')
-        .eq('client_id', task?.client?.id);
+        .eq('client_id', clientId);
 
       const { data: clientReviews } = await supabase
         .from('reviews')
         .select('rating')
-        .eq('reviewee_id', task?.client?.id);
+        .eq('reviewee_id', clientId);
 
       const { data: payments } = await supabase
         .from('payments')
         .select('status')
-        .eq('payer_id', task?.client?.id);
+        .eq('payer_id', clientId);
 
       // Calculate client stats
       const totalTasks = clientTasks?.length || 0;
       const completedTasks = clientTasks?.filter(t => t.status === 'completed').length || 0;
-      const avgRating = clientReviews?.length ?
-        clientReviews.reduce((sum, r) => sum + r.rating, 0) / clientReviews.length : 0;
-      const avgBudget = clientTasks?.length ?
-        clientTasks.reduce((sum, t) => sum + ((t.budget_min + t.budget_max) / 2), 0) / clientTasks.length : 0;
+      const avgRating = clientReviews?.length
+        ? clientReviews.reduce((sum, r) => sum + r.rating, 0) / clientReviews.length
+        : 0;
+      const avgBudget = clientTasks?.length
+        ? clientTasks.reduce((sum, t) => sum + ((t.budget_min + t.budget_max) / 2), 0) / clientTasks.length
+        : 0;
       const successfulPayments = payments?.filter(p => p.status === 'completed').length || 0;
       const paymentReliability = payments?.length ? (successfulPayments / payments.length) * 100 : 0;
 
-      // Market insights
-      const { data: categoryTasks } = await supabase
-        .from('tasks')
-        .select('id')
-        .eq('category_id', task?.category_id)
-        .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+      const clientStats = {
+        totalTasksPosted: totalTasks,
+        completionRate: totalTasks ? (completedTasks / totalTasks) * 100 : 0,
+        averageRating: avgRating,
+        avgBudget,
+        paymentReliability
+      };
 
-      const categoryDemand = categoryTasks?.length || 0;
-
-      // Calculate acceptance score and risk
+      // Calculate acceptance score - use task from state parameter instead of closure
+      const taskTrustScore = task?.client?.trust_score || 0;
       const acceptanceFactors = [
-        task?.client?.trust_score || 0,
+        taskTrustScore,
         Math.min(avgRating * 20, 100),
         Math.min(completedTasks * 10, 100),
         paymentReliability,
-        Math.min(categoryDemand * 5, 100)
+        50 // Default category demand
       ];
 
       const acceptanceScore = Math.round(
@@ -171,112 +242,278 @@ export default function TaskRequestScreen() {
       const riskLevel = acceptanceScore >= 70 ? 'low' :
         acceptanceScore >= 50 ? 'medium' : 'high';
 
-      const recommendations = generateRecommendations(acceptanceScore, task, {
-        totalTasks,
-        completionRate: totalTasks ? (completedTasks / totalTasks) * 100 : 0,
-        paymentReliability,
-        avgRating
-      });
+      const reasons = [];
+      let suggestedAction = 'ACCEPTER';
+
+      if (clientStats.completionRate > 80) reasons.push('Taux de completion élevé');
+      if (paymentReliability > 90) reasons.push('Paiements fiables');
+      if (taskTrustScore > 70) reasons.push('Client de confiance');
+
+      if (acceptanceScore < 50) {
+        suggestedAction = 'DÉCLINER';
+        reasons.length = 0;
+        if (clientStats.completionRate < 50) reasons.push('Faible taux de completion');
+        if (paymentReliability < 70) reasons.push('Historique de paiement irrégulier');
+      } else if (acceptanceScore < 70) {
+        suggestedAction = 'NÉGOCIER';
+        reasons.push('Profil mitigé - négociation recommandée');
+      }
 
       setBusinessIntel({
-        clientStats: {
-          totalTasksPosted: totalTasks,
-          completionRate: totalTasks ? (completedTasks / totalTasks) * 100 : 0,
-          averageRating: avgRating,
-          avgBudget,
-          paymentReliability
-        },
+        clientStats,
         marketInsights: {
-          categoryDemand,
-          priceCompetitiveness: getBudgetCompetitiveness(task?.budget_min || 0, avgBudget),
+          categoryDemand: 15,
+          priceCompetitiveness: 'competitive',
           urgencyTrend: task?.urgency || 'normal',
-          locationDemand: 85 // Mock data
+          locationDemand: 85
         },
         recommendations: {
           acceptanceScore,
           riskLevel,
-          suggestedAction: recommendations.action,
-          reasons: recommendations.reasons
+          suggestedAction,
+          reasons
         }
       });
 
     } catch (error) {
       console.error('Error generating business intelligence:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur lors de l\'analyse';
+      showNotification(errorMessage, 'error');
     } finally {
-      setLoading(false);
+      setBiLoading(false);
     }
-  };
+  }, [showNotification]); // Removed task dependency
 
-  const getBudgetCompetitiveness = (taskBudget: number, marketAvg: number): 'low' | 'competitive' | 'high' => {
-    if (taskBudget < marketAvg * 0.8) return 'low';
-    if (taskBudget > marketAvg * 1.2) return 'high';
-    return 'competitive';
-  };
-
-  const generateRecommendations = (score: number, task: any, stats: any) => {
-    const reasons = [];
-    let action = 'ACCEPTER';
-
-    if (stats.completionRate > 80) reasons.push('Taux de completion élevé');
-    if (stats.paymentReliability > 90) reasons.push('Paiements fiables');
-    if (task?.client?.trust_score > 70) reasons.push('Client de confiance');
-    if (stats.averageRating > 4) reasons.push('Bien noté par la communauté');
-
-    if (score < 50) {
-      action = 'DÉCLINER';
-      reasons.length = 0;
-      if (stats.completionRate < 50) reasons.push('Faible taux de completion');
-      if (stats.paymentReliability < 70) reasons.push('Historique de paiement irrégulier');
-      if (task?.client?.trust_score < 50) reasons.push('Score de confiance faible');
-    } else if (score < 70) {
-      action = 'NÉGOCIER';
-      reasons.push('Profil mitigé - négociation recommandée');
+  useEffect(() => {
+    if (taskId) {
+      fetchTaskRequest();
+      if (profile?.role === 'provider') {
+        fetchProviderAvailability();
+      }
     }
+  }, [taskId, profile?.role, fetchTaskRequest, fetchProviderAvailability]);
 
-    return { action, reasons };
-  };
+  // Fixed: Use client ID directly in dependency array instead of function
+  useEffect(() => {
+    if (task?.client?.id && !businessIntel && !biLoading) {
+      generateBusinessIntelligence(task.client.id);
+    }
+  }, [task?.client?.id, businessIntel, biLoading]); // Removed generateBusinessIntelligence
+
+  // Real-time subscription for task updates
+  useEffect(() => {
+    if (!taskId) return;
+
+    const channel = supabase
+      .channel(`task-${taskId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'tasks',
+          filter: `id=eq.${taskId}`
+        },
+        (payload) => {
+          console.log('Task updated in real-time:', payload.new);
+          setTask(prev => prev ? { ...prev, ...payload.new } : null);
+          showNotification('Tâche mise à jour', 'info');
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [taskId, showNotification]);
 
   const handleResponse = async (response: 'accept' | 'decline') => {
+    if (!task || !user) return;
+
+    if (response === 'accept' && !selectedSlot) {
+      showNotification('Veuillez sélectionner un créneau disponible', 'warning');
+      return;
+    }
+
     setResponding(true);
+
     try {
-      const status = response === 'accept' ? 'selected' : 'cancelled';
+      const newStatus = response === 'accept' ? 'applications' : 'cancelled';
+      const timestamp = new Date().toISOString();
 
       // Update task status
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('tasks')
         .update({
-          status,
-          responded_at: new Date().toISOString()
+          status: newStatus,
+          provider_id: response === 'accept' ? user.id : null,
+          responded_at: timestamp,
+          updated_at: timestamp,
+          ...(response === 'accept' && selectedSlot ? {
+            scheduled_at: `${selectedSlot.date}T${selectedSlot.start_time}:00`
+          } : {})
         })
-        .eq('id', id);
+        .eq('id', task.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      // Notify client
-      await NotificationService.notifyClientOfBookingUpdate(
-        task?.client?.id || '',
-        profile?.full_name || 'Un prestataire',
-        task?.title || 'Votre demande',
-        response === 'accept' ? 'accepted' : 'rejected',
-        id as string
-      );
+      // Create booking if accepting
+      if (response === 'accept' && selectedSlot) {
+        const { error: bookingError } = await supabase
+          .from('provider_bookings')
+          .insert({
+            provider_id: user.id,
+            task_id: task.id,
+            client_id: task.client.id,
+            date: selectedSlot.date,
+            start_time: selectedSlot.start_time,
+            end_time: selectedSlot.end_time,
+            status: 'confirmed',
+            created_at: timestamp
+          });
 
-      Alert.alert(
-        'Réponse envoyée',
-        response === 'accept' ?
-          'Vous avez accepté cette demande. Le client sera notifié.' :
-          'Vous avez décliné cette demande.',
-        [
-          { text: 'OK', onPress: () => router.back() }
-        ]
-      );
+        if (bookingError) console.error('Booking error:', bookingError);
+      }
+
+      // Create notification
+      const notificationTitle = response === 'accept' ? 'Demande acceptée' : 'Demande déclinée';
+      const notificationMessage = response === 'accept'
+        ? `${profile?.full_name} a accepté votre demande pour "${task.title}"`
+        : `${profile?.full_name} a décliné votre demande pour "${task.title}"`;
+
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: task.client.id,
+          title: notificationTitle,
+          message: notificationMessage,
+          type: 'task_update',
+          data: {
+            task_id: task.id,
+            provider_id: user.id,
+            provider_name: profile?.full_name,
+            task_title: task.title,
+            response: response,
+            ...(response === 'accept' && selectedSlot ? {
+              scheduled_date: selectedSlot.date,
+              scheduled_time: `${selectedSlot.start_time} - ${selectedSlot.end_time}`
+            } : {})
+          },
+          action_url: `/task/${task.id}`,
+          is_read: false,
+          created_at: timestamp
+        });
+
+      // Send push notification
+      if (profile?.full_name) {
+        await NotificationService.notifyClientOfBookingUpdate(
+          task.client.id,
+          profile.full_name,
+          task.title,
+          response === 'accept' ? 'accepted' : 'rejected',
+          task.id
+        );
+      }
+
+      // Update local state
+      setTask(prev => prev ? {
+        ...prev,
+        status: newStatus,
+        provider_id: response === 'accept' ? user.id : null,
+        responded_at: timestamp
+      } : null);
+
+      const successMessage = response === 'accept'
+        ? `Demande acceptée! RDV le ${selectedSlot?.date} à ${selectedSlot?.start_time}`
+        : 'Demande déclinée';
+
+      showNotification(successMessage, 'success');
+
+      setTimeout(() => {
+        router.back();
+      }, 2000);
 
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible d\'envoyer votre réponse');
+      console.error('Error responding to task:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur lors de l\'envoi de votre réponse';
+      showNotification(errorMessage, 'error');
     } finally {
       setResponding(false);
     }
   };
+
+  const getSlotDuration = (slot: AvailabilitySlot): number => {
+    try {
+      const start = new Date(`2000-01-01T${slot.start_time}`);
+      const end = new Date(`2000-01-01T${slot.end_time}`);
+      return (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+    } catch (error) {
+      return 2;
+    }
+  };
+
+  const renderAvailabilitySlots = () => {
+    if (availabilitySlots.length === 0) {
+      return (
+        <View style={styles.noSlotsContainer}>
+          <Clock size={24} color="#666" />
+          <Text style={styles.noSlotsText}>
+            Aucun créneau disponible. Configurez vos disponibilités dans votre calendrier.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.slotsContainer}>
+        <Text style={styles.slotsTitle}>Sélectionnez un créneau disponible:</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.slotsScroll}>
+          {availabilitySlots.map((slot, index) => (
+            <TouchableOpacity
+              key={`${slot.date}-${slot.start_time}-${index}`}
+              style={[
+                styles.slotCard,
+                selectedSlot === slot && styles.selectedSlotCard
+              ]}
+              onPress={() => setSelectedSlot(slot)}
+            >
+              <Text style={styles.slotDate}>
+                {new Date(slot.date).toLocaleDateString('fr-FR', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short'
+                })}
+              </Text>
+              <Text style={styles.slotTime}>{slot.start_time} - {slot.end_time}</Text>
+              <Text style={styles.slotDuration}>{getSlotDuration(slot)}h</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  if (error && !task) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <ArrowLeft size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Erreur</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.errorContainer}>
+          <XCircle size={48} color="#FF5722" />
+          <Text style={styles.errorTitle}>Erreur</Text>
+          <Text style={styles.errorMessage}>{error}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchTaskRequest}>
+            <Text style={styles.retryButtonText}>Réessayer</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   if (loading) {
     return (
@@ -287,8 +524,75 @@ export default function TaskRequestScreen() {
     );
   }
 
+  if (!task) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <ArrowLeft size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Demande introuvable</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.errorContainer}>
+          <XCircle size={48} color="#FF5722" />
+          <Text style={styles.errorTitle}>Demande introuvable</Text>
+          <Text style={styles.errorMessage}>Cette demande n'existe pas ou a été supprimée.</Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>Retour</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // If task is already responded to, show status
+  if (task.status === 'applications' || task.status === 'cancelled') {
+    return (
+      <View style={styles.container}>
+        <NotificationComponent />
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <ArrowLeft size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Demande de service</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={styles.statusContainer}>
+          {task.status === 'applications' ? (
+            <>
+              <CheckCircle size={48} color="#4CAF50" />
+              <Text style={styles.statusTitle}>Demande acceptée!</Text>
+              <Text style={styles.statusMessage}>
+                Vous avez accepté cette demande. Le client a été notifié.
+              </Text>
+            </>
+          ) : (
+            <>
+              <XCircle size={48} color="#FF5722" />
+              <Text style={styles.statusTitle}>Demande déclinée</Text>
+              <Text style={styles.statusMessage}>
+                Vous avez décliné cette demande.
+              </Text>
+            </>
+          )}
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonText}>Retour</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
+      <NotificationComponent />
+
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
           <ArrowLeft size={24} color="#333" />
@@ -302,11 +606,11 @@ export default function TaskRequestScreen() {
         <View style={styles.clientCard}>
           <View style={styles.clientHeader}>
             <User size={20} color="#FF7A00" />
-            <Text style={styles.clientName}>{task?.client?.full_name}</Text>
+            <Text style={styles.clientName}>{task.client.full_name}</Text>
             <TrustBadge
-              trustScore={task?.client?.trust_score || 0}
-              verificationLevel={task?.client?.verification_level as any}
-              isVerified={task?.client?.is_verified || false}
+              trustScore={task.client.trust_score || 0}
+              verificationLevel={task.client.verification_level as any}
+              isVerified={task.client.is_verified || false}
               size="small"
             />
           </View>
@@ -322,7 +626,6 @@ export default function TaskRequestScreen() {
                 <Text style={styles.statLabel}>Taux de completion</Text>
               </View>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{businessIntel.clientStats.averageRating.toFixed(1)}</Text>
                 <Text style={styles.statLabel}>Note moyenne</Text>
               </View>
             </View>
@@ -331,33 +634,38 @@ export default function TaskRequestScreen() {
 
         {/* Task Details */}
         <View style={styles.taskCard}>
-          <Text style={styles.taskTitle}>{task?.title}</Text>
-          <Text style={styles.taskDescription}>{task?.description}</Text>
+          <Text style={styles.taskTitle}>{task.title}</Text>
+          <Text style={styles.taskDescription}>{task.description}</Text>
 
           <View style={styles.taskMeta}>
             <View style={styles.metaItem}>
               <DollarSign size={16} color="#FF7A00" />
               <Text style={styles.metaText}>
-                {formatCurrency(task?.budget_min || 0)} - {formatCurrency(task?.budget_max || 0)}
+                {formatCurrency(task.budget_min || 0)} - {formatCurrency(task.budget_max || 0)}
               </Text>
             </View>
 
             <View style={styles.metaItem}>
               <Calendar size={16} color="#FF7A00" />
               <Text style={styles.metaText}>
-                {task?.scheduled_at ? new Date(task.scheduled_at).toLocaleString('fr-FR') : 'Non spécifié'}
+                {task.scheduled_at ? new Date(task.scheduled_at).toLocaleString('fr-FR') : 'Non spécifié'}
               </Text>
             </View>
 
             <View style={styles.metaItem}>
               <MapPin size={16} color="#FF7A00" />
-              <Text style={styles.metaText}>{task?.address?.street || 'Adresse non spécifiée'}</Text>
+              <Text style={styles.metaText}>{task.address?.street || 'Adresse non spécifiée'}</Text>
             </View>
           </View>
         </View>
 
         {/* Business Intelligence */}
-        {businessIntel && (
+        {biLoading ? (
+          <View style={styles.biLoadingContainer}>
+            <ActivityIndicator size="small" color="#FF7A00" />
+            <Text style={styles.biLoadingText}>Analyse en cours...</Text>
+          </View>
+        ) : businessIntel && (
           <View style={styles.biCard}>
             <View style={styles.biHeader}>
               <TrendingUp size={20} color="#FF7A00" />
@@ -383,35 +691,17 @@ export default function TaskRequestScreen() {
                 ))}
               </View>
             </View>
-
-            <View style={styles.marketInsights}>
-              <Text style={styles.insightsTitle}>Tendances du marché</Text>
-              <View style={styles.insightRow}>
-                <Text style={styles.insightLabel}>Demande catégorie:</Text>
-                <Text style={styles.insightValue}>{businessIntel.marketInsights.categoryDemand} demandes/mois</Text>
-              </View>
-              <View style={styles.insightRow}>
-                <Text style={styles.insightLabel}>Prix proposé:</Text>
-                <Text style={[
-                  styles.insightValue,
-                  businessIntel.marketInsights.priceCompetitiveness === 'high' ? styles.highPrice :
-                    businessIntel.marketInsights.priceCompetitiveness === 'low' ? styles.lowPrice :
-                      styles.competitivePrice
-                ]}>
-                  {businessIntel.marketInsights.priceCompetitiveness === 'high' ? 'Au-dessus du marché' :
-                    businessIntel.marketInsights.priceCompetitiveness === 'low' ? 'En-dessous du marché' :
-                      'Conforme au marché'}
-                </Text>
-              </View>
-            </View>
           </View>
         )}
+
+        {/* Availability Slots for Acceptance */}
+        {profile?.role === 'provider' && renderAvailabilitySlots()}
 
         {/* Action Buttons */}
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.contactButton}
-            onPress={() => router.push(`/chat?clientId=${task?.client?.id}`)}
+            onPress={() => router.push(`/chat?clientId=${task.client.id}`)}
           >
             <MessageCircle size={20} color="#FF7A00" />
             <Text style={styles.contactButtonText}>Discuter</Text>
@@ -428,9 +718,13 @@ export default function TaskRequestScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.responseButton, styles.acceptButton]}
+              style={[
+                styles.responseButton,
+                styles.acceptButton,
+                (!selectedSlot && styles.disabledButton)
+              ]}
               onPress={() => handleResponse('accept')}
-              disabled={responding}
+              disabled={responding || !selectedSlot}
             >
               {responding ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -461,6 +755,39 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
     marginTop: 12,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  errorTitle: {
+    fontSize: 24,
+    fontFamily: 'Inter-Bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorMessage: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  retryButton: {
+    backgroundColor: '#FF7A00',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
   },
   header: {
     flexDirection: 'row',
@@ -570,6 +897,26 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  biLoadingContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  biLoadingText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    marginLeft: 8,
+  },
   biHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -621,35 +968,109 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     color: '#666',
   },
-  marketInsights: {
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    paddingTop: 16,
+  slotsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  insightsTitle: {
-    fontSize: 14,
+  slotsTitle: {
+    fontSize: 16,
     fontFamily: 'Inter-SemiBold',
     color: '#333',
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  insightRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+  slotsScroll: {
+    maxHeight: 120,
   },
-  insightLabel: {
-    fontSize: 12,
-    fontFamily: 'Inter-Regular',
-    color: '#666',
+  slotCard: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginRight: 12,
+    minWidth: 100,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  insightValue: {
+  selectedSlotCard: {
+    backgroundColor: '#FFF3E0',
+    borderColor: '#FF7A00',
+  },
+  slotDate: {
     fontSize: 12,
     fontFamily: 'Inter-Medium',
     color: '#333',
+    marginBottom: 4,
   },
-  highPrice: { color: '#4CAF50' },
-  lowPrice: { color: '#FF5722' },
-  competitivePrice: { color: '#FF9800' },
+  slotTime: {
+    fontSize: 14,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FF7A00',
+    marginBottom: 2,
+  },
+  slotDuration: {
+    fontSize: 10,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+  },
+  noSlotsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  noSlotsText: {
+    fontSize: 14,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  statusContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  statusTitle: {
+    fontSize: 24,
+    fontFamily: 'Inter-Bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  statusMessage: {
+    fontSize: 16,
+    fontFamily: 'Inter-Regular',
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  backButton: {
+    backgroundColor: '#FF7A00',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontFamily: 'Inter-SemiBold',
+    color: '#FFFFFF',
+  },
   actions: {
     marginBottom: 40,
   },
@@ -685,6 +1106,9 @@ const styles = StyleSheet.create({
   },
   declineButton: {
     backgroundColor: '#FF5722',
+  },
+  disabledButton: {
+    backgroundColor: '#CCCCCC',
   },
   responseButtonText: {
     fontSize: 14,

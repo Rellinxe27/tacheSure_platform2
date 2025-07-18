@@ -156,7 +156,7 @@ export class NotificationService {
         budget: budget,
         action_text: 'Voir la demande'
       },
-      action_url: `/task/${taskId}`
+      action_url: `/task-request/${taskId}`
     };
 
     const pushData: PushNotificationData = {

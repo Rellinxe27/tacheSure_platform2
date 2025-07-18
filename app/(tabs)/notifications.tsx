@@ -225,24 +225,6 @@ export default function NotificationsScreen() {
           ))
         )}
       </ScrollView>
-
-      {/* Quick Actions */}
-      <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.quickAction}>
-          <MessageCircle size={20} color="#FF7A00" />
-          <Text style={styles.quickActionText}>Messages</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.quickAction}>
-          <Calendar size={20} color="#FF7A00" />
-          <Text style={styles.quickActionText}>Agenda</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.quickAction}>
-          <DollarSign size={20} color="#FF7A00" />
-          <Text style={styles.quickActionText}>Paiements</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }

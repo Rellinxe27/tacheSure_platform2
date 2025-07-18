@@ -1,4 +1,4 @@
-// hooks/useNotifications.ts
+// hooks/useNotifications.ts - Updated with auto-decrement
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Database } from '@/lib/database.types';
@@ -56,6 +56,26 @@ export const useNotifications = () => {
           setUnreadCount(prev => prev + 1);
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const updatedNotification = payload.new as Notification;
+          setNotifications(prev =>
+            prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
+          );
+
+          // Auto-decrement count when notification is marked as read
+          if (updatedNotification.is_read) {
+            setUnreadCount(prev => Math.max(0, prev - 1));
+          }
+        }
+      )
       .subscribe();
 
     return () => {
@@ -74,10 +94,10 @@ export const useNotifications = () => {
         .eq('id', notificationId);
 
       if (!error) {
+        // Real-time subscription will handle the count decrement
         setNotifications(prev =>
           prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
         );
-        setUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (err) {
       console.error('Error marking notification as read:', err);
@@ -116,4 +136,3 @@ export const useNotifications = () => {
     markAllAsRead,
   };
 };
-

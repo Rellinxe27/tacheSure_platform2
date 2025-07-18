@@ -9,6 +9,7 @@ import { formatCurrency } from '@/utils/formatting';
 import PaymentSelector from '@/components/PaymentSelector';
 import { getCurrentLocation } from '@/utils/permissions';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NotificationService } from '@/utils/notificationService';
 
 export default function BookServiceScreen() {
   const router = useRouter();
@@ -27,6 +28,8 @@ export default function BookServiceScreen() {
   const [location, setLocation] = useState<any>(null);
   const [showPayment, setShowPayment] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<any>(null);
+  // Add taskResult state with other states
+  const [taskResult, setTaskResult] = useState<any>(null);
 
   const [filters, setFilters] = useState({
     location: { lat: 5.3600, lng: -4.0083, address: 'Abidjan, Côte d\'Ivoire' },
@@ -155,14 +158,14 @@ export default function BookServiceScreen() {
     return regex.test(time);
   };
 
+  // Complete handleBooking function
   const handleBooking = async () => {
-    // Validate required fields
+    // Validation
     if (!selectedDate || !selectedTime || !taskDescription.trim()) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
       return;
     }
 
-    // Validate date and time formats
     if (!validateDate(selectedDate)) {
       Alert.alert('Erreur', 'Veuillez entrer une date valide au format YYYY-MM-DD (date future)');
       return;
@@ -177,8 +180,7 @@ export default function BookServiceScreen() {
       Alert.alert('Erreur', 'Veuillez définir une localisation pour la tâche');
       return;
     }
-    
-    // Validate price if entered
+
     if (customPrice && (isNaN(parseInt(customPrice)) || parseInt(customPrice) < 0)) {
       Alert.alert('Erreur', 'Veuillez entrer un prix valide');
       return;
@@ -216,6 +218,24 @@ export default function BookServiceScreen() {
 
       if (taskError) throw taskError;
 
+      // NOTIFY PROVIDER ABOUT NEW BOOKING
+      const notificationSent = await NotificationService.notifyProviderOfBooking(
+        provider.id,
+        profile?.full_name || 'Un client',
+        service?.name || 'un service',
+        selectedDate,
+        selectedTime,
+        taskResult.id,
+        parseInt(customPrice) || service?.price_min || 0
+      );
+
+      if (!notificationSent) {
+        console.warn('Failed to send notification to provider');
+      }
+
+      // Store taskResult for payment handler
+      setTaskResult(taskResult);
+
       // If payment method is selected, create payment
       if (selectedPaymentMethod && parseInt(customPrice) > 0) {
         setShowPayment(true);
@@ -226,13 +246,115 @@ export default function BookServiceScreen() {
           [
             {
               text: 'OK',
-              onPress: () => router.push(`/task/${taskResult.id}`)
+              onPress: () => router.push(`/task-request/${taskResult.id}`)
             }
           ]
         );
       }
     } catch (error) {
+      console.error('Booking error:', error);
       Alert.alert('Erreur', 'Impossible de créer la réservation. Veuillez réessayer plus tard.');
+    }
+  };
+
+// Function to create notification for provider
+  const createProviderNotification = async (task: any) => {
+    try {
+      const notificationData = {
+        user_id: provider.id,
+        title: 'Nouvelle demande de service',
+        message: `${profile?.full_name || 'Un client'} souhaite réserver ${service?.name || 'vos services'} pour le ${selectedDate} à ${selectedTime}`,
+        type: 'service_booking',
+        data: {
+          task_id: task.id,
+          client_name: profile?.full_name,
+          service_name: service?.name,
+          scheduled_date: selectedDate,
+          scheduled_time: selectedTime,
+          budget: parseInt(customPrice) || service?.price_min || 0,
+          action_text: 'Voir la demande',
+          action_url: `/task-request/${task.id}`
+        },
+        action_url: `/task-request/${task.id}`,
+        created_at: new Date().toISOString()
+      };
+
+      const { error: notificationError } = await supabase
+        .from('notifications')
+        .insert(notificationData);
+
+      if (notificationError) {
+        console.error('Error creating notification:', notificationError);
+      } else {
+        console.log('Provider notification created successfully');
+      }
+
+      // Optional: Send push notification if provider has push tokens
+      await sendPushNotificationToProvider(provider.id, notificationData);
+
+    } catch (error) {
+      console.error('Error in createProviderNotification:', error);
+    }
+  };
+
+// Function to send push notification
+  const sendPushNotificationToProvider = async (providerId: string, notificationData: any) => {
+    try {
+      // Get provider's push tokens
+      const { data: pushTokens } = await supabase
+        .from('push_tokens')
+        .select('token, platform')
+        .eq('user_id', providerId)
+        .eq('is_active', true);
+
+      if (!pushTokens || pushTokens.length === 0) {
+        console.log('No active push tokens for provider');
+        return;
+      }
+
+      // Send to each active token
+      for (const tokenData of pushTokens) {
+        await sendPushNotification(tokenData.token, {
+          title: notificationData.title,
+          body: notificationData.message,
+          data: {
+            task_id: notificationData.data.task_id,
+            type: 'task_booking',
+            action_url: notificationData.action_url
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error sending push notification:', error);
+    }
+  };
+
+// Push notification sender (would integrate with Expo Push API)
+  const sendPushNotification = async (pushToken: string, notification: any) => {
+    try {
+      const message = {
+        to: pushToken,
+        sound: 'default',
+        title: notification.title,
+        body: notification.body,
+        data: notification.data,
+      };
+
+      // This would use Expo's push notification service
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(message),
+      });
+
+      const result = await response.json();
+      console.log('Push notification sent:', result);
+    } catch (error) {
+      console.error('Error sending push notification:', error);
     }
   };
 
@@ -240,24 +362,33 @@ export default function BookServiceScreen() {
     setSelectedPaymentMethod(method);
   };
 
+  // Update handlePaymentComplete function
   const handlePaymentComplete = async () => {
     try {
       if (!taskResult || !selectedPaymentMethod || !profile) {
         throw new Error('Missing required data for payment');
       }
-      
+
       // Import the escrow payment utility
       const { createEscrowPayment } = await import('@/utils/escrowPayment');
-      
+
       // Create escrow payment
-      await createEscrowPayment(
+      const paymentResult = await createEscrowPayment(
         taskResult.id,
         profile.id,
-        service?.provider_id || '',
+        provider.id,
         parseInt(customPrice) || service?.price_min || 0,
         selectedPaymentMethod.id as 'mtn_money' | 'orange_money' | 'moov_money' | 'bank_transfer' | 'cash'
       );
-      
+
+      // Notify provider about payment
+      await NotificationService.notifyPaymentUpdate(
+        provider.id,
+        parseInt(customPrice) || service?.price_min || 0,
+        'completed',
+        taskResult.id
+      );
+
       Alert.alert(
         'Réservation et paiement confirmés!',
         'Votre tâche a été créée et le paiement est sécurisé dans notre système d\'entiercement. Le prestataire recevra le paiement une fois le service complété.',

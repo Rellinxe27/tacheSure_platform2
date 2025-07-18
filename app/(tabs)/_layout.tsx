@@ -1,15 +1,65 @@
-// app/(tabs)/_layout.tsx
+// app/(tabs)/_layout.tsx - Enhanced with notification badges
 import { Tabs } from 'expo-router';
-import { Chrome as Home, Search, MessageCircle, User, Plus, Shield, Calendar, Briefcase } from 'lucide-react-native';
+import { Chrome as Home, Search, MessageCircle, User, Plus, Shield, Calendar, Briefcase, Bell } from 'lucide-react-native';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { useNotifications } from '@/hooks/useNotifications';
+import { useMessages } from '@/hooks/useMessages';
+import { View, Text, StyleSheet } from 'react-native';
+
+// Notification Badge Component
+function NotificationBadge({ count, style }: { count: number; style?: any }) {
+  if (count === 0) return null;
+
+  return (
+    <View style={[styles.badge, style]}>
+      <Text style={styles.badgeText}>
+        {count > 99 ? '99+' : count.toString()}
+      </Text>
+    </View>
+  );
+}
+
+// Tab Icon with Badge Component
+function TabIconWithBadge({
+                            Icon,
+                            size,
+                            color,
+                            badgeCount = 0,
+                            badgeColor = '#FF5722'
+                          }: {
+  Icon: any;
+  size: number;
+  color: string;
+  badgeCount?: number;
+  badgeColor?: string;
+}) {
+  return (
+    <View style={styles.iconContainer}>
+      <Icon size={size} color={color} />
+      {badgeCount > 0 && (
+        <NotificationBadge
+          count={badgeCount}
+          style={[styles.tabBadge, { backgroundColor: badgeColor }]}
+        />
+      )}
+    </View>
+  );
+}
 
 export default function TabLayout() {
   const { profile, loading } = useAuth();
+  const { unreadCount: notificationCount } = useNotifications();
+  const { conversations } = useMessages();
 
   if (loading || !profile) return null;
 
   const isProvider = profile.role === 'provider';
   const isAdmin = profile.role === 'admin' || profile.role === 'moderator';
+
+  // Calculate unread messages count
+  const unreadMessagesCount = conversations.reduce((total, conv) =>
+    total + (conv.unread_count || 0), 0
+  );
 
   return (
     <Tabs
@@ -36,7 +86,11 @@ export default function TabLayout() {
         options={{
           title: 'Accueil',
           tabBarIcon: ({ size, color }) => (
-            <Home size={size} color={color} />
+            <TabIconWithBadge
+              Icon={Home}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />
@@ -77,11 +131,33 @@ export default function TabLayout() {
       />
 
       <Tabs.Screen
+        name="notifications"
+        options={{
+          title: 'Notifications',
+          tabBarIcon: ({ size, color }) => (
+            <TabIconWithBadge
+              Icon={Bell}
+              size={size}
+              color={color}
+              badgeCount={notificationCount}
+              badgeColor="#FF5722"
+            />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
         name="messages"
         options={{
           title: 'Messages',
           tabBarIcon: ({ size, color }) => (
-            <MessageCircle size={size} color={color} />
+            <TabIconWithBadge
+              Icon={MessageCircle}
+              size={size}
+              color={color}
+              badgeCount={unreadMessagesCount}
+              badgeColor="#4CAF50"
+            />
           ),
         }}
       />
@@ -110,3 +186,45 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -8,
+    right: -12,
+    backgroundColor: '#FF5722',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  tabBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontFamily: 'Inter-Bold',
+    textAlign: 'center',
+    lineHeight: 12,
+  },
+});

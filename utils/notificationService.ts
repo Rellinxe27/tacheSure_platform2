@@ -1,29 +1,12 @@
-// utils/notificationService.ts
-import { supabase } from '@/lib/supabase';
-
-interface NotificationData {
-  user_id: string;
-  title: string;
-  message: string;
-  type: 'task_update' | 'message' | 'payment' | 'review' | 'alert' | 'promotion';
-  data?: any;
-  action_url?: string;
-}
-
-interface PushNotificationData {
-  title: string;
-  body: string;
-  data?: any;
-  sound?: string;
-  badge?: number;
-}
-
+// utils/notificationService.ts - Fixed notification creation
 export class NotificationService {
   /**
-   * Create a notification in the database
+   * Create a notification in the database with immediate return
    */
   static async createNotification(notificationData: NotificationData): Promise<{ success: boolean; id?: string }> {
     try {
+      console.log('Creating notification:', notificationData);
+
       const { data, error } = await supabase
         .from('notifications')
         .insert({
@@ -34,8 +17,12 @@ export class NotificationService {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Notification creation error:', error);
+        throw error;
+      }
 
+      console.log('✅ Notification created successfully:', data.id);
       return { success: true, id: data.id };
     } catch (error) {
       console.error('Error creating notification:', error);
@@ -44,94 +31,7 @@ export class NotificationService {
   }
 
   /**
-   * Send push notification to user
-   */
-  static async sendPushNotification(userId: string, notification: PushNotificationData): Promise<boolean> {
-    try {
-      // Get user's active push tokens
-      const { data: pushTokens } = await supabase
-        .from('push_tokens')
-        .select('token, platform')
-        .eq('user_id', userId)
-        .eq('is_active', true);
-
-      if (!pushTokens || pushTokens.length === 0) {
-        console.log(`No active push tokens for user ${userId}`);
-        return false;
-      }
-
-      // Send to each token
-      const pushPromises = pushTokens.map(tokenData =>
-        this.sendToPushToken(tokenData.token, notification)
-      );
-
-      const results = await Promise.allSettled(pushPromises);
-      const successCount = results.filter(result => result.status === 'fulfilled').length;
-
-      return successCount > 0;
-    } catch (error) {
-      console.error('Error sending push notifications:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Send notification to specific push token
-   */
-  private static async sendToPushToken(pushToken: string, notification: PushNotificationData): Promise<void> {
-    const message = {
-      to: pushToken,
-      sound: notification.sound || 'default',
-      title: notification.title,
-      body: notification.body,
-      data: notification.data || {},
-      badge: notification.badge,
-    };
-
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Push notification failed: ${response.statusText}`);
-    }
-  }
-
-  /**
-   * Create notification and send push notification
-   */
-  static async notifyUser(
-    notificationData: NotificationData,
-    pushData?: PushNotificationData
-  ): Promise<{ success: boolean; notificationId?: string }> {
-    try {
-      // Create database notification
-      const dbResult = await this.createNotification(notificationData);
-
-      if (!dbResult.success) {
-        return { success: false };
-      }
-
-      // Send push notification if data provided
-      if (pushData) {
-        await this.sendPushNotification(notificationData.user_id, pushData);
-      }
-
-      return { success: true, notificationId: dbResult.id };
-    } catch (error) {
-      console.error('Error in notifyUser:', error);
-      return { success: false };
-    }
-  }
-
-  /**
-   * Notify provider about new booking
+   * Notify provider about new booking - Fixed
    */
   static async notifyProviderOfBooking(
     providerId: string,
@@ -142,6 +42,8 @@ export class NotificationService {
     taskId: string,
     budget: number
   ): Promise<boolean> {
+    console.log('Notifying provider:', providerId, 'about booking from:', clientName);
+
     const notificationData: NotificationData = {
       user_id: providerId,
       title: 'Nouvelle demande de service',
@@ -159,154 +61,203 @@ export class NotificationService {
       action_url: `/task-request/${taskId}`
     };
 
-    const pushData: PushNotificationData = {
-      title: 'Nouvelle demande de service',
-      body: `${clientName} souhaite réserver ${serviceName}`,
-      data: {
-        task_id: taskId,
-        type: 'task_booking',
-        action_url: `/task/${taskId}`
-      },
-      badge: 1
-    };
+    const result = await this.createNotification(notificationData);
 
-    const result = await this.notifyUser(notificationData, pushData);
-    return result.success;
-  }
+    if (result.success) {
+      // Also send push notification
+      const pushData: PushNotificationData = {
+        title: 'Nouvelle demande de service',
+        body: `${clientName} souhaite réserver ${serviceName}`,
+        data: {
+          task_id: taskId,
+          type: 'task_booking',
+          action_url: `/task-request/${taskId}`
+        },
+        badge: 1
+      };
 
-  /**
-   * Notify client about booking status change
-   */
-  static async notifyClientOfBookingUpdate(
-    clientId: string,
-    providerName: string,
-    serviceName: string,
-    status: string,
-    taskId: string
-  ): Promise<boolean> {
-    const statusMessages = {
-      accepted: `${providerName} a accepté votre demande pour ${serviceName}`,
-      rejected: `${providerName} a décliné votre demande pour ${serviceName}`,
-      completed: `${providerName} a marqué ${serviceName} comme terminé`,
-      cancelled: `${providerName} a annulé ${serviceName}`
-    };
+      await this.sendPushNotification(providerId, pushData);
+    }
 
-    const message = statusMessages[status as keyof typeof statusMessages] ||
-      `Mise à jour de votre réservation: ${status}`;
-
-    const notificationData: NotificationData = {
-      user_id: clientId,
-      title: 'Mise à jour de réservation',
-      message,
-      type: 'task_update',
-      data: {
-        task_id: taskId,
-        provider_name: providerName,
-        service_name: serviceName,
-        status: status,
-        action_text: 'Voir les détails'
-      },
-      action_url: `/task-details/${taskId}`
-    };
-
-    const pushData: PushNotificationData = {
-      title: 'Mise à jour de réservation',
-      body: message,
-      data: {
-        task_id: taskId,
-        type: 'task_update',
-        action_url: `/task-details/${taskId}`
-      },
-      badge: 1
-    };
-
-    const result = await this.notifyUser(notificationData, pushData);
-    return result.success;
-  }
-
-  /**
-   * Notify about payment events
-   */
-  static async notifyPaymentUpdate(
-    userId: string,
-    amount: number,
-    status: string,
-    taskId?: string
-  ): Promise<boolean> {
-    const statusMessages = {
-      completed: `Paiement de ${amount} FCFA reçu avec succès`,
-      failed: `Échec du paiement de ${amount} FCFA`,
-      refunded: `Remboursement de ${amount} FCFA effectué`,
-      pending: `Paiement de ${amount} FCFA en cours de traitement`
-    };
-
-    const message = statusMessages[status as keyof typeof statusMessages] ||
-      `Mise à jour de paiement: ${status}`;
-
-    const notificationData: NotificationData = {
-      user_id: userId,
-      title: 'Mise à jour de paiement',
-      message,
-      type: 'payment',
-      data: {
-        amount,
-        status,
-        task_id: taskId,
-        action_text: 'Voir les détails'
-      },
-      action_url: taskId ? `/task/${taskId}` : '/payments'
-    };
-
-    const pushData: PushNotificationData = {
-      title: 'Mise à jour de paiement',
-      body: message,
-      data: {
-        amount,
-        status,
-        task_id: taskId,
-        type: 'payment'
-      },
-      badge: 1
-    };
-
-    const result = await this.notifyUser(notificationData, pushData);
-    return result.success;
-  }
-
-  /**
-   * Notify about new messages
-   */
-  static async notifyNewMessage(
-    userId: string,
-    senderName: string,
-    messagePreview: string,
-    conversationId: string
-  ): Promise<boolean> {
-    const notificationData: NotificationData = {
-      user_id: userId,
-      title: `Message de ${senderName}`,
-      message: messagePreview,
-      type: 'message',
-      data: {
-        sender_name: senderName,
-        conversation_id: conversationId,
-        action_text: 'Répondre'
-      },
-      action_url: `/chat?conversationId=${conversationId}`
-    };
-
-    const pushData: PushNotificationData = {
-      title: `Message de ${senderName}`,
-      body: messagePreview,
-      data: {
-        conversation_id: conversationId,
-        type: 'message',
-        action_url: `/chat?conversationId=${conversationId}`
-      },
-      badge: 1
-    };
-
-    const result = await this.notifyUser(notificationData, pushData);
     return result.success;
   }
 }
+
+// hooks/useNotifications.ts - Fixed version
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
+import { Database } from '@/lib/database.types';
+import { useAuth } from '@/app/contexts/AuthContext';
+
+type Notification = Database['public']['Tables']['notifications']['Row'];
+
+export const useNotifications = () => {
+  const { user } = useAuth();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const subscriptionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    fetchNotifications();
+    setupRealTimeSubscription();
+
+    return () => {
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+        subscriptionRef.current = null;
+      }
+    };
+  }, [user]);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('Error fetching notifications:', error);
+      } else {
+        setNotifications(data || []);
+        const unread = data?.filter(n => !n.is_read).length || 0;
+        setUnreadCount(unread);
+      }
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setupRealTimeSubscription = () => {
+    if (!user || subscriptionRef.current) return;
+
+    console.log('Setting up notifications subscription for user:', user.id);
+
+    subscriptionRef.current = supabase
+      .channel(`notifications-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('🔥 New notification received:', payload.new);
+          const newNotification = payload.new as Notification;
+
+          setNotifications(prev => {
+            // Check for duplicates
+            if (prev.some(n => n.id === newNotification.id)) {
+              return prev;
+            }
+            return [newNotification, ...prev];
+          });
+
+          setUnreadCount(prev => prev + 1);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('📝 Notification updated:', payload.new);
+          const updatedNotification = payload.new as Notification;
+
+          setNotifications(prev =>
+            prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
+          );
+
+          // Auto-decrement count when notification is marked as read
+          if (updatedNotification.is_read) {
+            setUnreadCount(prev => Math.max(0, prev - 1));
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Notifications subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Real-time notifications active');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Notifications subscription failed');
+          // Retry subscription after delay
+          setTimeout(() => {
+            if (subscriptionRef.current) {
+              supabase.removeChannel(subscriptionRef.current);
+              subscriptionRef.current = null;
+            }
+            setupRealTimeSubscription();
+          }, 5000);
+        }
+      });
+  };
+
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({
+          is_read: true,
+          read_at: new Date().toISOString()
+        })
+        .eq('id', notificationId);
+
+      if (!error) {
+        // Update local state immediately
+        setNotifications(prev =>
+          prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
+    } catch (err) {
+      console.error('Error marking notification as read:', err);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({
+          is_read: true,
+          read_at: new Date().toISOString()
+        })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
+
+      if (!error) {
+        setNotifications(prev =>
+          prev.map(n => ({ ...n, is_read: true }))
+        );
+        setUnreadCount(0);
+      }
+    } catch (err) {
+      console.error('Error marking all notifications as read:', err);
+    }
+  };
+
+  return {
+    notifications,
+    loading,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+  };
+};

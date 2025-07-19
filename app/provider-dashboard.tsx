@@ -17,9 +17,15 @@ export default function ProviderDashboardScreen() {
   const [isAvailable, setIsAvailable] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch real data from database
-  const { tasks: myTasks, loading: tasksLoading } = useTasks({
-    providerId: user?.id,
+  // Fetch all available tasks (not assigned to any provider yet)
+  const { tasks: availableTasks, loading: availableTasksLoading } = useTasks({
+    status: 'posted', // Only unassigned tasks
+    limit: 20
+  });
+
+  // Fetch tasks assigned to current provider
+  const { tasks: myAssignedTasks, loading: tasksLoading } = useTasks({
+    providerId: user?.id, // Only my tasks
     limit: 20
   });
 
@@ -28,15 +34,15 @@ export default function ProviderDashboardScreen() {
   const { stats: reviewStats, loading: reviewsLoading } = useReviews(user?.id);
 
   // Filter tasks by status
-  const activeBookings = myTasks.filter(task =>
-    ['selected', 'in_progress'].includes(task.status)
+  // Filter assigned tasks by status
+  const activeBookings = myAssignedTasks.filter(task =>
+    ['applications', 'selected', 'in_progress'].includes(task.status)
   );
 
-  const pendingApplications = myTasks.filter(task =>
-    task.status === 'applications'
-  );
+  // Show only truly available tasks (not responded to by this provider)
+  const pendingApplications = availableTasks;
 
-  const completedTasks = myTasks.filter(task =>
+  const completedTasks = myAssignedTasks.filter(task =>
     task.status === 'completed'
   );
 

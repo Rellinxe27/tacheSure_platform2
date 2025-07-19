@@ -282,7 +282,8 @@ export default function BookServiceScreen() {
           [
             {
               text: 'OK',
-              onPress: () => router.push(`/task-request/${taskResult.id}`)
+              // FIXED: Redirect to task-details instead of task-request
+              onPress: () => router.push(`/task-details/${taskResult.id}`)
             }
           ]
         );
@@ -431,7 +432,8 @@ export default function BookServiceScreen() {
         [
           {
             text: 'OK',
-            onPress: () => router.push('/(tabs)/index')
+            // FIXED: Redirect to task-details instead of home
+            onPress: () => router.push(`/task-details/${taskResult.id}`)
           }
         ]
       );

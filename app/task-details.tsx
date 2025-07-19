@@ -267,8 +267,75 @@ export default function TaskDetailsScreen() {
   };
 
   const handleSelectProvider = async (application: any) => {
-    setSelectedProvider(application);
-    setShowPayment(true);
+    try {
+      // Update task to assign the selected provider
+      const { error: taskError } = await supabase
+        .from('tasks')
+        .update({
+          provider_id: application.provider_id,
+          status: 'selected',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', taskId);
+
+      if (taskError) throw taskError;
+
+      // Update the application status to accepted
+      const { error: appError } = await supabase
+        .from('task_applications')
+        .update({
+          status: 'accepted',
+          responded_at: new Date().toISOString()
+        })
+        .eq('id', application.id);
+
+      if (appError) throw appError;
+
+      // Reject other applications
+      const { error: rejectError } = await supabase
+        .from('task_applications')
+        .update({
+          status: 'rejected',
+          responded_at: new Date().toISOString()
+        })
+        .eq('task_id', taskId)
+        .neq('id', application.id);
+
+      if (rejectError) throw rejectError;
+
+      // Create notification for selected provider
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: application.provider_id,
+          title: 'Félicitations! Vous avez été sélectionné',
+          message: `Votre candidature pour "${task.title}" a été acceptée`,
+          type: 'task_update',
+          data: {
+            task_id: taskId,
+            client_name: task.client?.full_name,
+            task_title: task.title
+          },
+          action_url: `/task-status/${taskId}`,
+          created_at: new Date().toISOString()
+        });
+
+      // Update local state
+      setTask(prev => ({
+        ...prev,
+        provider_id: application.provider_id,
+        status: 'selected'
+      }));
+
+      showNotification('Prestataire sélectionné avec succès!', 'success');
+
+      // Navigate to payment or task management
+      router.push(`/task-status?taskId=${taskId}`);
+
+    } catch (error) {
+      console.error('Error selecting provider:', error);
+      showNotification('Erreur lors de la sélection', 'error');
+    }
   };
 
   const handleViewProfile = (providerId: string) => {

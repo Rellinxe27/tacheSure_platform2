@@ -1,4 +1,4 @@
-// lib/supabase.ts - Enhanced configuration for real-time
+// lib/supabase.ts - Enhanced real-time configuration
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
@@ -12,9 +12,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-console.log('🔗 Supabase URL:', supabaseUrl);
-console.log('🔑 Supabase Key exists:', !!supabaseAnonKey);
-
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
@@ -26,6 +23,8 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     params: {
       eventsPerSecond: 10,
     },
+    heartbeatIntervalMs: 30000,
+    reconnectAfterMs: (tries) => Math.min(tries * 1000, 30000),
   },
   global: {
     headers: {
@@ -34,13 +33,26 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Test connection
+// Enhanced connection monitoring
 supabase.auth.onAuthStateChange((event, session) => {
   console.log('🔐 Auth state changed:', event, session?.user?.id);
 });
 
-// Test real-time connection
-const testChannel = supabase.channel('connection-test');
-testChannel.subscribe((status) => {
-  console.log('📡 Real-time connection status:', status);
-});
+// Connection test with better error handling
+const testRealTimeConnection = () => {
+  const testChannel = supabase.channel('connection-test');
+  testChannel
+    .subscribe((status) => {
+      console.log('📡 Real-time connection test:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log('✅ Real-time ready');
+        // Clean up test channel
+        setTimeout(() => supabase.removeChannel(testChannel), 1000);
+      } else if (status === 'CHANNEL_ERROR') {
+        console.error('❌ Real-time connection failed');
+      }
+    });
+};
+
+// Test connection when client is created
+setTimeout(testRealTimeConnection, 1000);

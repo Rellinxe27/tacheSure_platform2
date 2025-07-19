@@ -71,6 +71,7 @@ export default function RootLayout() {
           <Stack.Screen name="contact-support" />
           <Stack.Screen name="send-feedback" />
           <Stack.Screen name="task-request/[id]" />
+          <Stack.Screen name="task-details/[id]" />
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style="auto" />

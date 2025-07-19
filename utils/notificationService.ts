@@ -206,7 +206,7 @@ export class NotificationService {
         status: status,
         action_text: 'Voir les détails'
       },
-      action_url: `/task/${taskId}`
+      action_url: `/task-details/${taskId}`
     };
 
     const pushData: PushNotificationData = {
@@ -215,7 +215,7 @@ export class NotificationService {
       data: {
         task_id: taskId,
         type: 'task_update',
-        action_url: `/task/${taskId}`
+        action_url: `/task-details/${taskId}`
       },
       badge: 1
     };

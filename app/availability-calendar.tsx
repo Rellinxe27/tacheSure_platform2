@@ -173,8 +173,10 @@ export default function AvailabilityCalendarScreen() {
   };
 
   const getTimeSlotStyle = (timeSlot: TimeSlot) => {
-    if (timeSlot.booked) {
-      return [styles.timeSlot, styles.bookedSlot];
+    if (timeSlot.booked && timeSlot.booking_status === 'confirmed') {
+      return [styles.timeSlot, styles.confirmedBooking];
+    } else if (timeSlot.booked && timeSlot.booking_status === 'pending') {
+      return [styles.timeSlot, styles.pendingBooking];
     } else if (timeSlot.available) {
       return [styles.timeSlot, styles.availableSlot];
     } else {
@@ -577,5 +579,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     color: '#FFFFFF',
     marginLeft: 8,
+  },
+  pendingBooking: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 2,
+    borderColor: '#FF7A00',
+    borderStyle: 'dashed',
+  },
+  confirmedBooking: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 2,
+    borderColor: '#2196F3',
   },
 });

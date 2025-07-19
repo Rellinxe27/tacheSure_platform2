@@ -218,6 +218,42 @@ export default function BookServiceScreen() {
 
       if (taskError) throw taskError;
 
+      // CREATE BOOKING RECORD FOR CALENDAR SYNC
+      if (selectedDate && selectedTime && provider.id) {
+        // Parse time to get end time (assume 2 hours)
+        const [hours, minutes] = selectedTime.split(':').map(Number);
+        const endHours = hours + 2;
+        const endTime = `${endHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+        await supabase
+          .from('provider_bookings')
+          .insert({
+            provider_id: provider.id,
+            client_id: user.id,
+            task_id: taskResult.id,
+            date: selectedDate,
+            start_time: selectedTime,
+            end_time: endTime,
+            status: 'pending', // Pending until provider accepts
+            notes: `Réservation pour: ${taskDescription}`,
+            created_at: new Date().toISOString()
+          });
+
+        // UPDATE TIME SLOT AVAILABILITY
+        await supabase
+          .from('time_slots')
+          .upsert({
+            provider_id: provider.id,
+            date: selectedDate,
+            start_time: selectedTime,
+            end_time: endTime,
+            is_available: false,
+            is_booked: true,
+            task_id: taskResult.id,
+            booking_status: 'pending'
+          });
+      }
+
       // NOTIFY PROVIDER ABOUT NEW BOOKING
       const notificationSent = await NotificationService.notifyProviderOfBooking(
         provider.id,
